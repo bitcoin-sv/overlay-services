@@ -4,7 +4,7 @@
  * @description
  * Tagged BEEF ([Background-Evaluated Extended Format](https://brc.dev/74)) structure. Comprises a transaction, its SPV information, and the overlay topics where its inclusion is requested.
  */
-export default interface TaggedBEEF {
+export type TaggedBEEF = {
   beef: number[]
-  tags: string[]
+  topics: string[]
 }

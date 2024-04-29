@@ -1,66 +1,63 @@
-export default class KnexStorageEngine implements Storage {
-    constructor({ knex, tablePrefix = 'ump_lookup_' }) {
+import Storage from '../Storage.js'
+import { Knex } from 'knex'
+import type { Output } from '../../Output.js'
+
+export default class KnexStorage implements Storage {
+    knex: Knex
+
+    constructor(knex: Knex) {
         this.knex = knex
-        this.tablePrefix = tablePrefix
-        this.migrations = makeMigrations({ tablePrefix })
     }
 
-    async findUTXO(txid, outputIndex, topic, spent) {
-        const search = {
+    async findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean): Promise<Output | null> {
+        const search: {
+            txid: string,
+            outputIndex: number,
+            topic?: string,
+            spent?: boolean
+        } = {
             txid,
             outputIndex
         }
         if (topic !== undefined) search.topic = topic
         if (spent !== undefined) search.spent = spent
-        const outputs = await this.knex('outputs').where(search).select('id', 'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'rawTx', 'proof', 'inputs', 'mapiResponses', 'utxosConsumed', 'spent', 'consumedBy')
-        return outputs
+        const [output] = await this.knex('outputs').where(search).select(
+            'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
+        )
+        if (!output) {
+            return null
+        }
+        return {
+            ...output,
+            outputScript: [...output.outputScript],
+            beef: [...output.beef],
+            spent: Boolean(output.spent),
+            outputsConsumed: JSON.parse(output.outputsConsumed),
+            consumedBy: JSON.parse(output.consumedBy)
+        }
     }
 
-    async findUTXOById(id) {
-        const outputs = await this.knex('outputs').where({ id }).select('id', 'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'rawTx', 'proof', 'inputs', 'mapiResponses', 'utxosConsumed', 'spent', 'consumedBy')
-        return outputs
-    }
-
-    async deleteUTXO(txid, outputIndex, topic) {
-        const deleted = await this.knex('outputs').where({
+    async deleteOutput(txid: string, outputIndex: number, topic: string): Promise<void> {
+        await this.knex('outputs').where({
             txid, outputIndex, topic
         }).del()
-        // TODO: Check deletion status..
-        if (deleted) {
-            return 'success'
-        }
-        return 'failed to delete'
     }
 
-    async deleteUTXOById(id) {
-        const deleted = await this.knex('outputs').where({
-            id
-        }).del()
-        // TODO: Check deletion status..
-        if (deleted) {
-            return 'success'
-        }
-        return 'failed to delete'
-    }
-
-    async addUTXO({ txid, outputIndex, outputScript, topic, satoshis, rawTx, proof, mapiResponses, inputs, utxosConsumed, consumedBy }) {
-        const [id] = await this.knex('outputs').insert({
-            txid,
-            outputIndex: Number(outputIndex),
-            outputScript: Buffer.from(outputScript.toHex(), 'hex'),
-            topic,
-            satoshis: Number(satoshis),
-            rawTx,
-            proof: JSON.stringify(proof),
-            mapiResponses: JSON.stringify(mapiResponses),
-            inputs: JSON.stringify(inputs),
-            utxosConsumed,
-            consumedBy
+    async insertOutput(output: Output) {
+        await this.knex('outputs').insert({
+            txid: output.txid,
+            outputIndex: Number(output.outputIndex),
+            outputScript: Buffer.from(output.outputScript),
+            topic: output.topic,
+            satoshis: Number(output.satoshis),
+            beef: [...output.beef],
+            outputsConsumed: JSON.stringify(output.outputsConsumed),
+            consumedBy: JSON.stringify(output.consumedBy),
+            spent: output.spent
         })
-        return id
     }
 
-    async markUTXOAsSpent(txid, outputIndex, topic) {
+    async markUTXOAsSpent(txid: string, outputIndex: number, topic?: string): Promise<void> {
         await this.knex('outputs').where({
             txid,
             outputIndex,
@@ -68,25 +65,26 @@ export default class KnexStorageEngine implements Storage {
         }).update('spent', true)
     }
 
-    async updateConsumedBy(id, consumedBy) {
-        // TODO: Add error handling
+    async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: { txid: string, outputIndex: number }[]) {
         await this.knex('outputs').where({
-            id
+            txid,
+            outputIndex,
+            topic
         }).update('consumedBy', consumedBy)
     }
 
-    async insertAppliedTransaction(txid, topic) {
+    async insertAppliedTransaction(tx: { txid: string, topic: string }) {
         await this.knex('applied_transactions').insert({
-            txid,
-            topic
+            txid: tx.txid,
+            topic: tx.topic
         })
     }
 
-    async findAppliedTransaction(txid, topic) {
+    async doesAppliedTransactionExist(tx: { txid: string, topic: string }): Promise<boolean> {
         const appliedTransactions = await this.knex('applied_transactions').where({
-            txid,
-            topic
+            txid: tx.txid,
+            topic: tx.topic
         }).select('txid', 'topic')
-        return appliedTransactions[0]
+        return appliedTransactions.length > 0
     }
 }

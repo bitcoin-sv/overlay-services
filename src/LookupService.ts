@@ -1,4 +1,5 @@
 import { LookupQuestion } from './LookupQuestion.js'
+import { LookupFormula } from './LookupFormula.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { Script } from '@bsv/sdk'
 
@@ -33,11 +34,11 @@ export default interface LookupService {
     outputDeleted?(txid: string, outputIndex: number, topic: string): Promise<void>
 
     /**
-     * Queries the lookup service for particular UTXOs
-     * @param {object} query - lookup query given as an object
-     * @returns {Promise<object[]>} - the data returned from the query
+     * Queries the lookup service for information
+     * @param question — The question to be answered by the lookup service
+     * @returns — The Lookup Answer or Lookup Formula used to answer the question
      */
-    lookup(question: LookupQuestion): Promise<LookupAnswer>
+    lookup(question: LookupQuestion): Promise<LookupAnswer | LookupFormula>
 
     /**
      * Returns a Markdown-formatted documentation string for the lookup service.

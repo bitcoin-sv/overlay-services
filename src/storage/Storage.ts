@@ -1,70 +1,72 @@
+import type { Output } from '../Output.js'
+
+/**
+ * Representa a transaction that has been applied to a topic.
+ */
+type AppliedTransaction = {
+    /** TXID of the applied transaction */
+    txid: string
+    /** Output index of the applied transaction */
+    topic: string
+}
 
 /**
  * Defines the Storage Engine interface used internally by the Overlay Services Engine.
  */
-export default interface ConfederacyStorageEngine {
+export default interface Storage {
     /**
-     * Adds a new UTXO to the storage medium
-     * @param utxo
+     * Adds a new output to storage
+     * @param utxo — The output to add
      */
-    addUTXO(
-        utxo: Output,
-    ): Promise<number>
+    insertOutput(utxo: Output): Promise<void>
 
     /**
-     * Gets a UTXO from the storage medium
-     * @param txid 
-     * @param outputIndex 
-     * @param topic 
+     * Finds an output from storage
+     * @param txid — TXID of hte output to find
+     * @param outputIndex — Output index for the output to find
+     * @param topic — The topic in which the output is stored
+     * @param spent — Whether the output must be spent to be returned
      */
-    findUTXO(txid: string, outputIndex: number, topic?: string, spent?: boolean): Promise<Output[]>
+    findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean): Promise<Output | null>
 
     /**
-     * Gets a UTXO from the storage medium
-     * @param {number} id - reference the unique data in the database
+     * Deletes an output from storage
+     * @param txid — The TXID of the output to delete
+     * @param outputIndex — The index of the output to delete
+     * @param topic — The topic where the output should be deleted
      */
-    findUTXOById(id: number): Promise<Output[]>
-
-    /**
-     * Deletes a UTXO from the storage medium
-     * @param txid 
-     * @param outputIndex 
-     * @param topic 
-     */
-    deleteUTXO(txid: string, outputIndex: number, topic: string): Promise<void>
-
-    /**
- * Deletes a UTXO from the storage medium by id
- * @param id
- */
-    deleteUTXOById(id: number): Promise<void>
+    deleteOutput(txid: string, outputIndex: number, topic: string): Promise<void>
 
     /**
     * Updates a UTXO as spent
-    * @param txid 
-    * @param outputIndex 
-    * @param topic 
+    * @param txid — TXID of the output to update
+    * @param outputIndex — Index of the output to update
+    * @param topic — Topic in which the output should be updated
     */
     markUTXOAsSpent(txid: string, outputIndex: number, topic: string): Promise<void>
 
     /**
-    * Updates the consumedBy field
-    * @param id
-    * @param consumedBy
+    * Updates which outputs are consumed by this output
+    * @param txid — TXID of the output to update
+    * @param outputIndex — Index of the output to update
+    * @param topic — Topic in which the output should be updated
+    * @param consumedBy — The new set of outputs consumed by this output
     */
-    updateConsumedBy(id: number, consumedBy: string): Promise<void>
+    updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: {
+        txid: string
+        outputIndex: number
+    }[]): Promise<void>
 
     /**
      * Inserts record of the applied transaction
-     * @param txid 
-     * @param topic 
+     * @param tx — The transaction to insert
      */
-    insertAppliedTransaction(txid: string, topic: string): Promise<void>
+    insertAppliedTransaction(tx: AppliedTransaction): Promise<void>
 
     /**
      * Checks if a duplicate transaction exists
-     * @param txid 
-     * @param topic 
+     * @param tx — Transaction to check
+     * @returns Whether the transaction is already applied
      */
-    findAppliedTransaction(txid: string, topic: string): Promise<object>
+    doesAppliedTransactionExist(tx: AppliedTransaction): Promise<boolean>
 }

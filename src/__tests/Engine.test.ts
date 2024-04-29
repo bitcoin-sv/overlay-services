@@ -50,7 +50,7 @@ describe('BSV Overlay Services Engine', () => {
         mockStorageEngine,
         mockChainTracker
       )
-      await expect(confederacy.submit({
+      await expect(engine.submit({
         beef: exampleBeef,
         topics: ['hello']
       })).rejects.toHaveProperty('message', 'This server does not support this topic: hello')
@@ -64,7 +64,7 @@ describe('BSV Overlay Services Engine', () => {
         mockStorageEngine,
         mockChainTracker
       )
-      await confederacy.submit({
+      await engine.submit({
         beef: exampleBeef,
         topics: ['Hello']
       })
@@ -82,7 +82,7 @@ describe('BSV Overlay Services Engine', () => {
         mockChainTracker
       )
       mockChainTracker.isValidRootForHeight.mockReturnValueOnce(false)
-      await expect(confederacy.submit({
+      await expect(engine.submit({
         beef: exampleBeef,
         topics: ['Hello']
       })).rejects.toHaveProperty('message', 'Invalid SPV Envelope for the given transaction')
@@ -97,7 +97,7 @@ describe('BSV Overlay Services Engine', () => {
           mockStorageEngine,
           mockChainTracker
         )
-        await confederacy.submit({
+        await engine.submit({
           beef: exampleBeef,
           topics: ['Hello']
         })
@@ -113,7 +113,7 @@ describe('BSV Overlay Services Engine', () => {
           mockStorageEngine,
           mockChainTracker
         )
-        await confederacy.submit({
+        await engine.submit({
           beef: exampleBeef,
           topics: ['Hello']
         })
@@ -148,10 +148,10 @@ describe('BSV Overlay Services Engine', () => {
             mockChainTracker
           )
           // Mock the deletion because testing it here is not relevant
-          confederacy.deleteUTXODeep = jest.fn()
+          engine.deleteUTXODeep = jest.fn()
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
@@ -182,10 +182,10 @@ describe('BSV Overlay Services Engine', () => {
             mockChainTracker
           )
           // Mock the deletion because testing it here is not relevant
-          confederacy.deleteUTXODeep = jest.fn()
+          engine.deleteUTXODeep = jest.fn()
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
@@ -218,14 +218,14 @@ describe('BSV Overlay Services Engine', () => {
           mockChainTracker
         )
         // Mock the deletion because testing it here is not relevant
-        confederacy.deleteUTXODeep = jest.fn()
+        engine.deleteUTXODeep = jest.fn()
 
         // Submit the utxo
-        await confederacy.submit({
+        await engine.submit({
           beef: exampleBeef,
           topics: ['Hello']
         })
-        expect(confederacy.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith({
+        expect(engine.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith({
           previousUTXOs: [{
             txid: 'mockPrevTXID',
             vout: 0
@@ -274,14 +274,14 @@ describe('BSV Overlay Services Engine', () => {
             mockChainTracker
           )
           // Mock the deletion because testing it here is not relevant
-          confederacy.deleteUTXODeep = jest.fn()
+          engine.deleteUTXODeep = jest.fn()
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
-          expect(confederacy.lookupServices.Hello.outputSpent).toHaveBeenCalledWith({
+          expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith({
             txid: 'mockPrevTXID',
             vout: 0,
             topic: 'Hello'
@@ -321,7 +321,7 @@ describe('BSV Overlay Services Engine', () => {
           )
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
@@ -361,7 +361,7 @@ describe('BSV Overlay Services Engine', () => {
           )
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
@@ -401,7 +401,7 @@ describe('BSV Overlay Services Engine', () => {
         )
 
         // Submit the utxo
-        await confederacy.submit({
+        await engine.submit({
           beef: exampleBeef,
           topics: ['Hello']
         })
@@ -455,7 +455,7 @@ describe('BSV Overlay Services Engine', () => {
         )
 
         // Submit the utxo
-        await confederacy.submit({
+        await engine.submit({
           beef: exampleBeef,
           topics: ['Hello']
         })
@@ -514,7 +514,7 @@ describe('BSV Overlay Services Engine', () => {
           )
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
@@ -569,7 +569,7 @@ describe('BSV Overlay Services Engine', () => {
           )
 
           // Submit the utxo
-          await confederacy.submit({
+          await engine.submit({
             beef: exampleBeef,
             topics: ['Hello']
           })
@@ -625,7 +625,7 @@ describe('BSV Overlay Services Engine', () => {
         )
 
         // Submit the utxo
-        await confederacy.submit({
+        await engine.submit({
           beef: exampleBeef,
           topics: ['Hello']
         })
@@ -683,7 +683,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Submit the utxo
-      const results = await confederacy.submit({
+      const results = await engine.submit({
         beef: exampleBeef,
         topics: ['Hello']
       })
@@ -712,7 +712,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      await confederacy.lookup({
+      await engine.lookup({
         query: {}
       })
       expect(mockLookupService.lookup).toThrowError()
@@ -730,7 +730,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      await expect(confederacy.lookup({
+      await expect(engine.lookup({
         provider: 'abcdefg'
       })).rejects.toThrow()
     })
@@ -747,7 +747,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      await expect(confederacy.lookup({
+      await expect(engine.lookup({
         provider: 'HelloWorld',
         query: { name: 'Bob' }
       })).rejects.toThrow()
@@ -776,7 +776,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      await confederacy.lookup({
+      await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })
@@ -813,7 +813,7 @@ describe('BSV Overlay Services Engine', () => {
         )
 
         // Perform a lookup request
-        await confederacy.lookup({
+        await engine.lookup({
           provider: 'Hello',
           query: { name: 'Bob' }
         })
@@ -850,7 +850,7 @@ describe('BSV Overlay Services Engine', () => {
           mockStorageEngine,
           mockChainTracker
         )
-        confederacy.getUTXOHistory = jest.fn(() => {
+        engine.getUTXOHistory = jest.fn(() => {
           return {
             txid: 'mockTXZID',
             inputs: {}
@@ -858,11 +858,11 @@ describe('BSV Overlay Services Engine', () => {
         })
 
         // Perform a lookup request
-        await confederacy.lookup({
+        await engine.lookup({
           provider: 'Hello',
           query: { name: 'Bob' }
         })
-        expect(confederacy.getUTXOHistory).toHaveBeenCalledWith(
+        expect(engine.getUTXOHistory).toHaveBeenCalledWith(
           {
             consumedBy: '[]',
             id: 33,
@@ -903,7 +903,7 @@ describe('BSV Overlay Services Engine', () => {
         mockStorageEngine,
         mockChainTracker
       )
-      confederacy.getUTXOHistory = jest.fn(() => {
+      engine.getUTXOHistory = jest.fn(() => {
         return {
           txid: 'mockTXID',
           inputs: {}
@@ -911,7 +911,7 @@ describe('BSV Overlay Services Engine', () => {
       })
 
       // Perform a lookup request
-      const results = await confederacy.lookup({
+      const results = await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })
@@ -955,7 +955,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      await confederacy.lookup({
+      await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })
@@ -1000,7 +1000,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      const results = await confederacy.lookup({
+      const results = await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })
@@ -1041,7 +1041,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      const results = await confederacy.lookup({
+      const results = await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })
@@ -1072,7 +1072,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      const results = await confederacy.lookup({
+      const results = await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })
@@ -1120,7 +1120,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Perform a lookup request
-      await confederacy.lookup({
+      await engine.lookup({
         provider: 'Hello',
         query: { name: 'Bob' }
       })

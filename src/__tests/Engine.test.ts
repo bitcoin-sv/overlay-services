@@ -4,6 +4,7 @@ import TopicManager from '../TopicManager'
 import { AdmittanceInstructions } from '../AdmittanceInstructions'
 import Storage from '../storage/Storage'
 import { Transaction } from '@bsv/sdk'
+import { Output } from '../Output'
 
 const mockChainTracker = {
   isValidRootForHeight: jest.fn(async () => true)
@@ -15,6 +16,17 @@ const exampleTX = Transaction.fromHexBEEF(BRC62Hex)
 const exampleBeef = exampleTX.toBEEF()
 const exampleTXID = exampleTX.id('hex') as string
 let mockTopicManager: TopicManager, mockLookupService: LookupService, mockStorageEngine: Storage
+const mockOutput: Output = {
+  txid: exampleTXID,
+  outputIndex: 0,
+  outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
+  topic: 'hello',
+  satoshis: exampleTX.outputs[0].satoshis as number,
+  beef: exampleBeef,
+  spent: false,
+  outputsConsumed: [],
+  consumedBy: []
+}
 
 describe('BSV Overlay Services Engine', () => {
   beforeEach(() => {
@@ -128,79 +140,53 @@ describe('BSV Overlay Services Engine', () => {
         expect(mockStorageEngine.markUTXOAsSpent).not.toHaveBeenCalled()
         expect(mockStorageEngine.insertOutput).not.toHaveBeenCalled()
       })
+      describe('For each input of the transaction', () => {
+        it('Acquires the appropriate previous topical UTXOs from the storage engine', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {},
+            mockStorageEngine,
+            mockChainTracker
+          )
+          // Mock the deletion because testing it here is not relevant
+          // engine.deleteUTXODeep = jest.fn()
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+          expect(mockStorageEngine.findOutput).toHaveBeenCalled()
+        })
+        it('Includes the appropriate previous topical UTXOs when they are returned from the storage engine', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {},
+            mockStorageEngine,
+            mockChainTracker
+          )
+          // Mock the deletion because testing it here is not relevant
+          // engine.deleteUTXODeep = jest.fn()
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+          expect(mockStorageEngine.findOutput).toHaveBeenCalled()
+          expect(mockStorageEngine.markUTXOAsSpent).toHaveBeenCalledWith(exampleTXID, 0, 'Hello')
+        })
+      })
     })
   })
-  // describe('For each input of the transaction', () => {
-  //   it('Acquires the appropriate previous topical UTXOs from the storage engine', async () => {
-  //     // Mock findUTXO to return a UTXO
-  //     mockStorageEngine.findOutput = jest.fn(async () => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0
-  //     }])
-  //     mockParser.parse = jest.fn(() => ({
-  //       inputs: [{
-  //         prevTxId: 'someMockPrevTXID'
-  //       }],
-  //       outputs: [{
-  //         script: Buffer.from('016a', 'hex'),
-  //         satoshis: 1000
-  //       }],
-  //       id: 'MOCK_TX_ID'
-  //     }))
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {},
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
-  //     // Mock the deletion because testing it here is not relevant
-  //     engine.deleteUTXODeep = jest.fn()
-
-  //     // Submit the utxo
-  //     await engine.submit({
-  //       beef: exampleBeef,
-  //       topics: ['Hello']
-  //     })
-  //     expect(mockStorageEngine.findOutput).toHaveBeenCalled()
-  //   })
-  //   it('Includes the appropriate previous topical UTXOs when they are returned from the storage engine', async () => {
-  //     // Mock findUTXO to return a UTXO
-  //     mockStorageEngine.findOutput = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0
-  //     }])
-  //     mockParser.parse = jest.fn(() => ({
-  //       inputs: [{
-  //         prevTxId: 'someMockPrevTXID'
-  //       }],
-  //       outputs: [{
-  //         script: Buffer.from('016a', 'hex'),
-  //         satoshis: 1000
-  //       }],
-  //       id: 'MOCK_TX_ID'
-  //     }))
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {},
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
-  //     // Mock the deletion because testing it here is not relevant
-  //     engine.deleteUTXODeep = jest.fn()
-
-  //     // Submit the utxo
-  //     await engine.submit({
-  //       beef: exampleBeef,
-  //       topics: ['Hello']
-  //     })
-  //     expect(mockStorageEngine.findOutput).toHaveBeenCalled()
-  //     expect(mockStorageEngine.markUTXOAsSpent).toHaveBeenCalledWith('mockPrevTXID', 0, 'Hello')
-  //   })
-  // })
   // it('Identifies admissible outputs with the appropriate topic manager', async () => {
   //   // Mock findUTXO to return a UTXO
   //   mockStorageEngine.findOutput = jest.fn(() => [{

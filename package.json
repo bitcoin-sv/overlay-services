@@ -24,15 +24,15 @@
       "import": "./dist/esm/src/*.js",
       "require": "./dist/cjs/src/*.js"
     },
-    "./interfaces": {
-      "import": "./dist/esm/src/interfaces/index.js",
-      "require": "./dist/cjs/src/interfaces/index.js",
-      "types": "./dist/types/src/interfaces/index.d.ts"
+    "./storage": {
+      "import": "./dist/esm/src/storage/index.js",
+      "require": "./dist/cjs/src/storage/index.js",
+      "types": "./dist/types/src/storage/index.d.ts"
     },
-    "./interfaces/*": {
-      "import": "./dist/esm/src/interfaces/*.js",
-      "require": "./dist/cjs/src/interfaces/*.js",
-      "types": "./dist/types/src/interfaces/*.d.ts"
+    "./storage/*": {
+      "import": "./dist/esm/src/storage/*.js",
+      "require": "./dist/cjs/src/storage/*.js",
+      "types": "./dist/types/src/storage/*.d.ts"
     }
   },
   "scripts": {
@@ -43,7 +43,7 @@
     "build": "tsc -b && tsconfig-to-dual-package tsconfig.cjs.json",
     "dev": "tsc -b -w",
     "prepublish": "npm run build",
-    "doc": "ts2md --inputFilename=src/interfaces/index.ts --outputFilename=docs/interfaces.md --filenameSubString=interfaces --firstHeadingLevel=1"
+    "doc": "ts2md --inputFilename=mod.ts --outputFilename=docs/API.md --filenameSubstring=API --firstHeadingLevel=1"
   },
   "repository": {
     "type": "git",
@@ -63,12 +63,16 @@
   },
   "homepage": "https://github.com/bitcoin-sv/overlay-services#readme",
   "devDependencies": {
-    "@types/jest": "^29.5.5",
+    "@types/jest": "^29.5.12",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.1",
     "ts-standard": "^12.0.2",
     "ts2md": "^0.2.0",
     "tsconfig-to-dual-package": "^1.2.0",
     "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "@bsv/sdk": "^1.0.20",
+    "knex": "^3.1.0"
   }
 }

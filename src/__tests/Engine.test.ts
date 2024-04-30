@@ -185,58 +185,29 @@ describe('BSV Overlay Services Engine', () => {
           expect(mockStorageEngine.markUTXOAsSpent).toHaveBeenCalledWith(exampleTXID, 0, 'Hello')
         })
       })
+      it('Identifies admissible outputs with the appropriate topic manager', async () => {
+        // Mock findUTXO to return a UTXO
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {},
+          mockStorageEngine,
+          mockChainTracker
+        )
+        // Mock the deletion because testing it here is not relevant
+        // engine.deleteUTXODeep = jest.fn()
+
+        // Submit the utxo
+        await engine.submit({
+          beef: exampleBeef,
+          topics: ['Hello']
+        })
+        expect(engine.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith(exampleBeef, [0])
+      })
     })
   })
-  // it('Identifies admissible outputs with the appropriate topic manager', async () => {
-  //   // Mock findUTXO to return a UTXO
-  //   mockStorageEngine.findOutput = jest.fn(() => [{
-  //     txid: 'mockPrevTXID',
-  //     outputIndex: 0
-  //   }])
-  //   mockParser.parse = jest.fn(() => ({
-  //     inputs: [{
-  //       prevTxId: 'someMockPrevTXID'
-  //     }],
-  //     outputs: [{
-  //       script: Buffer.from('016a', 'hex'),
-  //       satoshis: 1000
-  //     }],
-  //     id: 'MOCK_TX_ID'
-  //   }))
-  //   const engine = new Engine(
-  //     {
-  //       Hello: mockTopicManager
-  //     },
-  //     {},
-  //     mockStorageEngine,
-  //     mockChainTracker
-  //   )
-  //   // Mock the deletion because testing it here is not relevant
-  //   engine.deleteUTXODeep = jest.fn()
-
-  //   // Submit the utxo
-  //   await engine.submit({
-  //     beef: exampleBeef,
-  //     topics: ['Hello']
-  //   })
-  //   expect(engine.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith({
-  //     previousUTXOs: [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0
-  //     }],
-  //     parsedTransaction: {
-  //       inputs: [{
-  //         prevTxId: 'someMockPrevTXID'
-  //       }],
-  //       outputs: [{
-  //         script: Buffer.from('016a', 'hex'),
-  //         satoshis: 1000
-  //       }],
-  //       id: 'MOCK_TX_ID'
-  //     }
-  //   })
-  // })
-  //     it.todo('Throws an error if the return value from the topic manager is invalid')
   //     describe('When previous UTXOs were retained by the topic manager', () => {
   //       // it('Marks the UTXO as spent', async () => {
   //       // // tested previously

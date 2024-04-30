@@ -15,6 +15,7 @@ const exampleTX = Transaction.fromHexBEEF(BRC62Hex)
 
 const exampleBeef = exampleTX.toBEEF()
 const exampleTXID = exampleTX.id('hex') as string
+const examplePreviousTXID = '3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac'
 let mockTopicManager: TopicManager, mockLookupService: LookupService, mockStorageEngine: Storage
 const mockOutput: Output = {
   txid: exampleTXID,
@@ -152,8 +153,6 @@ describe('BSV Overlay Services Engine', () => {
             mockStorageEngine,
             mockChainTracker
           )
-          // Mock the deletion because testing it here is not relevant
-          // engine.deleteUTXODeep = jest.fn()
 
           // Submit the utxo
           await engine.submit({
@@ -173,8 +172,6 @@ describe('BSV Overlay Services Engine', () => {
             mockStorageEngine,
             mockChainTracker
           )
-          // Mock the deletion because testing it here is not relevant
-          // engine.deleteUTXODeep = jest.fn()
 
           // Submit the utxo
           await engine.submit({
@@ -196,8 +193,6 @@ describe('BSV Overlay Services Engine', () => {
           mockStorageEngine,
           mockChainTracker
         )
-        // Mock the deletion because testing it here is not relevant
-        // engine.deleteUTXODeep = jest.fn()
 
         // Submit the utxo
         await engine.submit({
@@ -206,900 +201,572 @@ describe('BSV Overlay Services Engine', () => {
         })
         expect(engine.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith(exampleBeef, [0])
       })
+      describe('When previous UTXOs were retained by the topic manager', () => {
+        it('Notifies all lookup services about the output being spent (not deleted, see the comment about this in deleteUTXODeep)', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+          expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith(exampleTXID, 0, 'Hello')
+        })
+      })
+      describe('When previous UTXOs were not retained by the topic manager', () => {
+        it('Marks the UTXO as stale, deleting all stale UTXOs by calling deleteUTXODeep', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+          // Test that previous UTXOs are deleted
+          expect(mockStorageEngine.deleteOutput).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+          expect(mockLookupService.outputDeleted).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+        })
+        it('Notifies all lookup services about the output being spent (the notification about the actual deletion will come from deleteUTXODeep)', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+          // Was the lookup service notified of the output deletion?
+          expect(mockLookupService.outputDeleted).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+        })
+      })
+      it('Adds admissible UTXOs to the storage engine', async () => {
+        // Mock findUTXO to return a UTXO
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
+
+        // Submit the utxo
+        await engine.submit({
+          beef: exampleBeef,
+          topics: ['hello']
+        })
+        // Test the new UTXO was added
+        expect(mockStorageEngine.insertOutput).toHaveBeenCalledWith(mockOutput)
+      })
+      it('Notifies lookup services about incoming admissible UTXOs', async () => {
+        // Mock findUTXO to return a UTXO
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
+
+        // Submit the utxo
+        await engine.submit({
+          beef: exampleBeef,
+          topics: ['Hello']
+        })
+        // Test the lookup service was notified of the new UTXO
+        expect(mockLookupService.outputAdded).toHaveBeenCalledWith(
+          exampleTXID,
+          0,
+          exampleTX.outputs[0].lockingScript,
+          'Hello'
+        )
+      })
+      describe('For each consumed UTXO', () => {
+        it('Finds the UTXO', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          mockTopicManager.identifyAdmissibleOutputs = jest.fn(async () => {
+            return {
+              outputsToAdmit: [0],
+              coinsToRetain: [0]
+            }
+          })
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+
+          // Test a storage engine lookup happens for the utxo consumed
+          expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(examplePreviousTXID, 0, 'Hello')
+        })
+        it('Updates the UTXO to reflect that it is now additionally consumed by the newly-created UTXOs', async () => {
+          // Mock findUTXO to return a UTXO
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          mockTopicManager.identifyAdmissibleOutputs = jest.fn(async () => {
+            return {
+              outputsToAdmit: [0],
+              coinsToRetain: [0]
+            }
+          })
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
+
+          // Submit the utxo
+          await engine.submit({
+            beef: exampleBeef,
+            topics: ['Hello']
+          })
+
+          // Test the consumedBy data is updated
+          expect(mockStorageEngine.updateConsumedBy).toHaveBeenCalledWith(examplePreviousTXID, 0, 'Hello', [{
+            txid: exampleTXID,
+            outputIndex: 0
+          }])
+        })
+      })
+      it('Inserts a new applied transaction to avoid de-duplication', async () => {
+        // Mock findUTXO to return a UTXO
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        mockTopicManager.identifyAdmissibleOutputs = jest.fn(async () => {
+          return {
+            outputsToAdmit: [0],
+            coinsToRetain: [0]
+          }
+        })
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
+
+        // Submit the utxo
+        await engine.submit({
+          beef: exampleBeef,
+          topics: ['Hello']
+        })
+
+        // Test the tx is inserted
+        expect(mockStorageEngine.insertAppliedTransaction).toHaveBeenCalledWith({
+          txid: exampleTXID,
+          topic: 'Hello'
+        })
+      })
+      it('Returns a correct set of admitted topics and outputs', async () => {
+        // Mock findUTXO to return a UTXO
+        mockStorageEngine.insertOutput = jest.fn()
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        mockTopicManager.identifyAdmissibleOutputs = jest.fn(async () => {
+          return {
+            outputsToAdmit: [0],
+            coinsToRetain: [0]
+          }
+        })
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
+
+        // Submit the utxo
+        const results = await engine.submit({
+          beef: exampleBeef,
+          topics: ['Hello']
+        })
+
+        // Test the correct outputs are admitted
+        expect(results).toEqual({
+          Hello: {
+            outputsToAdmit: [0],
+            coinsToRetain: [0]
+          }
+        })
+      })
     })
-  })
-  //     describe('When previous UTXOs were retained by the topic manager', () => {
-  //       // it('Marks the UTXO as spent', async () => {
-  //       // // tested previously
-  //       // })
-  //       it('Notifies all lookup services about the output being spent (not deleted, see the comment about this in deleteUTXODeep)', async () => {
-  //         // Mock findUTXO to return a UTXO
-  //         mockStorageEngine.findOutput = jest.fn(() => [{
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0
-  //         }])
-  //         mockParser.parse = jest.fn(() => ({
-  //           inputs: [{
-  //             prevTxId: 'someMockPrevTXID'
-  //           }],
-  //           outputs: [{
-  //             script: Buffer.from('016a', 'hex'),
-  //             satoshis: 1000
-  //           }],
-  //           id: 'MOCK_TX_ID'
-  //         }))
-  //         const engine = new Engine(
-  //           {
-  //             Hello: mockTopicManager
-  //           },
-  //           {
-  //             Hello: mockLookupService
-  //           },
-  //           mockStorageEngine,
-  //           mockChainTracker
-  //         )
-  //         // Mock the deletion because testing it here is not relevant
-  //         engine.deleteUTXODeep = jest.fn()
 
-  //         // Submit the utxo
-  //         await engine.submit({
-  //           beef: exampleBeef,
-  //           topics: ['Hello']
-  //         })
-  //         expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith({
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello'
-  //         })
-  //       })
-  //     })
-  //     describe('When previous UTXOs were not retained by the topic manager', () => {
-  //       it('Marks the UTXO as stale, deleting all stale UTXOs by calling deleteUTXODeep', async () => {
-  //         // Mock findUTXO to return a UTXO
-  //         mockStorageEngine.findOutput = jest.fn(() => [{
-  //           id: 33,
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello',
-  //           utxosConsumed: [],
-  //           consumedBy: []
-  //         }])
-  //         mockParser.parse = jest.fn(() => ({
-  //           inputs: [{
-  //             prevTxId: 'someMockPrevTXID'
-  //           }],
-  //           outputs: [{
-  //             script: Buffer.from('016a', 'hex'),
-  //             satoshis: 1000
-  //           }],
-  //           id: 'MOCK_TX_ID'
-  //         }))
-  //         const engine = new Engine(
-  //           {
-  //             Hello: mockTopicManager
-  //           },
-  //           {
-  //             Hello: mockLookupService
-  //           },
-  //           mockStorageEngine,
-  //           mockChainTracker
-  //         )
+    describe('lookup', () => {
+      it('Throws an error if no lookup service has this provider name', async () => {
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
 
-  //         // Submit the utxo
-  //         await engine.submit({
-  //           beef: exampleBeef,
-  //           topics: ['Hello']
-  //         })
-  //         // Test that previous UTXOs are deleted
-  //         expect(mockStorageEngine.deleteUTXOById).toHaveBeenCalled()
-  //         expect(mockLookupService.outputDeleted).toHaveBeenCalled()
-  //       })
-  //       it('Notifies all lookup services about the output being spent (the notification about the actual deletion will come from deleteUTXODeep)', async () => {
-  //         // Mock findUTXO to return a UTXO
-  //         mockStorageEngine.findOutput = jest.fn(() => [{
-  //           id: 33,
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello',
-  //           utxosConsumed: [],
-  //           consumedBy: []
-  //         }])
-  //         mockParser.parse = jest.fn(() => ({
-  //           inputs: [{
-  //             prevTxId: 'someMockPrevTXID'
-  //           }],
-  //           outputs: [{
-  //             script: Buffer.from('016a', 'hex'),
-  //             satoshis: 1000
-  //           }],
-  //           id: 'MOCK_TX_ID'
-  //         }))
-  //         const engine = new Engine(
-  //           {
-  //             Hello: mockTopicManager
-  //           },
-  //           {
-  //             Hello: mockLookupService
-  //           },
-  //           mockStorageEngine,
-  //           mockChainTracker
-  //         )
+        // Perform a lookup request
+        await expect(engine.lookup({
+          service: 'HelloWorld',
+          query: { name: 'Bob' }
+        })).rejects.toThrow()
+      })
+      it('Calls the lookup function from the lookup service', async () => {
+        // TODO: Make the default storage engine return something...?
+        mockLookupService.lookup = jest.fn(async () => [{ txid: exampleTXID, outputIndex: 0 }])
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
 
-  //         // Submit the utxo
-  //         await engine.submit({
-  //           beef: exampleBeef,
-  //           topics: ['Hello']
-  //         })
-  //         // Was the lookup service notified of the output deletion?
-  //         expect(mockLookupService.outputDeleted).toHaveBeenCalled()
-  //       })
-  //     })
-  //     it('Adds admissible UTXOs to the storage engine', async () => {
-  //       // Mock findUTXO to return a UTXO
-  //       mockStorageEngine.findOutput = jest.fn(() => [{
-  //         id: 33,
-  //         txid: 'mockPrevTXID',
-  //         outputIndex: 0,
-  //         topic: 'Hello',
-  //         utxosConsumed: [],
-  //         consumedBy: []
-  //       }])
-  //       mockParser.parse = jest.fn(() => ({
-  //         inputs: [{
-  //           prevTxId: 'someMockPrevTXID'
-  //         }],
-  //         outputs: [{
-  //           script: Buffer.from('016a', 'hex'),
-  //           satoshis: 1000
-  //         }],
-  //         id: 'MOCK_TX_ID'
-  //       }))
-  //       const engine = new Engine(
-  //         {
-  //           Hello: mockTopicManager
-  //         },
-  //         {
-  //           Hello: mockLookupService
-  //         },
-  //         mockStorageEngine,
-  //         mockChainTracker
-  //       )
+        // Perform a lookup request
+        await engine.lookup({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
+        expect(mockLookupService.lookup).toHaveBeenCalledWith({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
+      })
+      describe('For each returned result', () => {
+        it('Finds the identified UTXO by its txid and vout', async () => {
+          // TODO: Make the default storage engine return something...?
+          mockLookupService.lookup = jest.fn(async () => [{
+            txid: 'mockTXID',
+            outputIndex: 0,
+            history: undefined
+          }])
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
 
-  //       // Submit the utxo
-  //       await engine.submit({
-  //         beef: exampleBeef,
-  //         topics: ['Hello']
-  //       })
-  //       // Test the new UTXO was added
-  //       expect(mockStorageEngine.insertOutput).toHaveBeenCalledWith({
-  //         consumedBy: [],
-  //         history: undefined,
-  //         id: undefined,
-  //         inputs: undefined,
-  //         mapiResponses: undefined,
-  //         outputScript: Buffer.from('016a', 'hex'),
-  //         proof: undefined,
-  //         rawTx: 'MOCK_RAW_TX',
-  //         satoshis: 1000,
-  //         spent: false,
-  //         topic: 'Hello',
-  //         txid: 'MOCK_TX_ID',
-  //         utxosConsumed: [],
-  //         outputIndex: 0
-  //       })
-  //     })
-  //     it('Notifies lookup services about incoming admissible UTXOs', async () => {
-  //       // Mock findUTXO to return a UTXO
-  //       mockStorageEngine.findOutput = jest.fn(() => [{
-  //         id: 33,
-  //         txid: 'mockPrevTXID',
-  //         outputIndex: 0,
-  //         topic: 'Hello',
-  //         utxosConsumed: [],
-  //         consumedBy: []
-  //       }])
-  //       mockParser.parse = jest.fn(() => ({
-  //         inputs: [{
-  //           prevTxId: 'someMockPrevTXID'
-  //         }],
-  //         outputs: [{
-  //           script: Buffer.from('016a', 'hex'),
-  //           satoshis: 1000
-  //         }],
-  //         id: 'MOCK_TX_ID'
-  //       }))
-  //       const engine = new Engine(
-  //         {
-  //           Hello: mockTopicManager
-  //         },
-  //         {
-  //           Hello: mockLookupService
-  //         },
-  //         mockStorageEngine,
-  //         mockChainTracker
-  //       )
+          // Perform a lookup request
+          await engine.lookup({
+            service: 'Hello',
+            query: { name: 'Bob' }
+          })
+          expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(
+            "mockTXID", 0, undefined, false
+          )
+        })
+        it('Calls getUTXOHistory with the correct UTXO and history parameters', async () => {
+          mockLookupService.lookup = jest.fn(async () => [{
+            txid: 'mockTXID',
+            outputIndex: 0,
+            history: undefined
+          }])
+          mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+          const engine = new Engine(
+            {
+              Hello: mockTopicManager
+            },
+            {
+              Hello: mockLookupService
+            },
+            mockStorageEngine,
+            mockChainTracker
+          )
+          engine.getUTXOHistory = jest.fn(async () => {
+            return mockOutput
+          })
 
-  //       // Submit the utxo
-  //       await engine.submit({
-  //         beef: exampleBeef,
-  //         topics: ['Hello']
-  //       })
-  //       // Test the lookup service was notified of the new UTXO
-  //       expect(mockLookupService.outputAdded).toHaveBeenCalledWith({
-  //         outputScript: Buffer.from('016a', 'hex'),
-  //         topic: 'Hello',
-  //         txid: 'MOCK_TX_ID',
-  //         outputIndex: 0
-  //       })
-  //     })
-  //     describe('For each consumed UTXO', () => {
-  //       it('Finds the UTXO by ID', async () => {
-  //         // Mock findUTXO to return a UTXO
-  //         mockStorageEngine.findOutput = jest.fn(() => [{
-  //           id: 33,
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello',
-  //           utxosConsumed: [],
-  //           consumedBy: []
-  //         }])
-  //         mockStorageEngine.findOutputById = jest.fn(() => [{
-  //           id: 33,
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello',
-  //           utxosConsumed: [],
-  //           consumedBy: []
-  //         }])
-  //         mockParser.parse = jest.fn(() => ({
-  //           inputs: [{
-  //             prevTxId: 'someMockPrevTXID'
-  //           }],
-  //           outputs: [{
-  //             script: Buffer.from('016a', 'hex'),
-  //             satoshis: 1000
-  //           }],
-  //           id: 'MOCK_TX_ID'
-  //         }))
-  //         mockTopicManager.identifyAdmissibleOutputs = jest.fn(() => {
-  //           return {
-  //             outputsToAdmit: [0],
-  //             outputsToRetain: [33]
-  //           }
-  //         })
-  //         const engine = new Engine(
-  //           {
-  //             Hello: mockTopicManager
-  //           },
-  //           {
-  //             Hello: mockLookupService
-  //           },
-  //           mockStorageEngine,
-  //           mockChainTracker
-  //         )
+          // Perform a lookup request
+          await engine.lookup({
+            service: 'Hello',
+            query: { name: 'Bob' }
+          })
+          expect(engine.getUTXOHistory).toHaveBeenCalledWith(
+            mockOutput,
+            undefined,
+            0
+          )
+        })
+      })
+      it('Returns the correct set of hydrated results', async () => {
+        mockLookupService.lookup = jest.fn(async () => [{
+          txid: 'mockTXID',
+          outputIndex: 0,
+          history: undefined
+        }])
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
+        engine.getUTXOHistory = jest.fn(async () => {
+          return mockOutput
+        })
 
-  //         // Submit the utxo
-  //         await engine.submit({
-  //           beef: exampleBeef,
-  //           topics: ['Hello']
-  //         })
-
-  //         // Test a storage engine lookup happens for the utxo consumed
-  //         expect(mockStorageEngine.findOutputById).toHaveBeenCalledWith(33)
-  //       })
-  //       it('Updates the UTXO to reflect that it is now additionally consumed by the newly-created UTXOs', async () => {
-  //         // Mock findUTXO to return a UTXO
-  //         mockStorageEngine.insertOutput = jest.fn(() => 34)
-  //         mockStorageEngine.findOutput = jest.fn(() => [{
-  //           id: 33,
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello',
-  //           utxosConsumed: [],
-  //           consumedBy: []
-  //         }])
-  //         mockStorageEngine.findOutputById = jest.fn(() => [{
-  //           id: 33,
-  //           txid: 'mockPrevTXID',
-  //           outputIndex: 0,
-  //           topic: 'Hello',
-  //           utxosConsumed: [],
-  //           consumedBy: []
-  //         }])
-  //         mockParser.parse = jest.fn(() => ({
-  //           inputs: [{
-  //             prevTxId: 'someMockPrevTXID'
-  //           }],
-  //           outputs: [{
-  //             script: Buffer.from('016a', 'hex'),
-  //             satoshis: 1000
-  //           }],
-  //           id: 'MOCK_TX_ID'
-  //         }))
-  //         mockTopicManager.identifyAdmissibleOutputs = jest.fn(() => {
-  //           return {
-  //             outputsToAdmit: [0],
-  //             outputsToRetain: [33]
-  //           }
-  //         })
-  //         const engine = new Engine(
-  //           {
-  //             Hello: mockTopicManager
-  //           },
-  //           {
-  //             Hello: mockLookupService
-  //           },
-  //           mockStorageEngine,
-  //           mockChainTracker
-  //         )
-
-  //         // Submit the utxo
-  //         await engine.submit({
-  //           beef: exampleBeef,
-  //           topics: ['Hello']
-  //         })
-
-  //         // Test the consumedBy data is updated
-  //         expect(mockStorageEngine.updateConsumedBy).toHaveBeenCalledWith(33, '[34]')
-  //       })
-  //     })
-  //     it('Inserts a new applied transaction to avoid de-duplication', async () => {
-  //       // Mock findUTXO to return a UTXO
-  //       mockStorageEngine.insertOutput = jest.fn(() => 34)
-  //       mockStorageEngine.findOutput = jest.fn(() => [{
-  //         id: 33,
-  //         txid: 'mockPrevTXID',
-  //         outputIndex: 0,
-  //         topic: 'Hello',
-  //         utxosConsumed: [],
-  //         consumedBy: []
-  //       }])
-  //       mockStorageEngine.findOutputById = jest.fn(() => [{
-  //         id: 33,
-  //         txid: 'mockPrevTXID',
-  //         outputIndex: 0,
-  //         topic: 'Hello',
-  //         utxosConsumed: [],
-  //         consumedBy: []
-  //       }])
-  //       mockParser.parse = jest.fn(() => ({
-  //         inputs: [{
-  //           prevTxId: 'someMockPrevTXID'
-  //         }],
-  //         outputs: [{
-  //           script: Buffer.from('016a', 'hex'),
-  //           satoshis: 1000
-  //         }],
-  //         id: 'MOCK_TX_ID'
-  //       }))
-  //       mockTopicManager.identifyAdmissibleOutputs = jest.fn(() => {
-  //         return {
-  //           outputsToAdmit: [0],
-  //           outputsToRetain: [33]
-  //         }
-  //       })
-  //       const engine = new Engine(
-  //         {
-  //           Hello: mockTopicManager
-  //         },
-  //         {
-  //           Hello: mockLookupService
-  //         },
-  //         mockStorageEngine,
-  //         mockChainTracker
-  //       )
-
-  //       // Submit the utxo
-  //       await engine.submit({
-  //         beef: exampleBeef,
-  //         topics: ['Hello']
-  //       })
-
-  //       // Test the tx is inserted
-  //       expect(mockStorageEngine.insertAppliedTransaction).toHaveBeenCalledWith(
-  //         'MOCK_TX_ID', 'Hello'
-  //       )
-  //     })
-  //   })
-  //   it('Returns a correct set of admitted topics and outputs', async () => {
-  //     // Mock findUTXO to return a UTXO
-  //     mockStorageEngine.insertOutput = jest.fn()
-  //     mockStorageEngine.findOutput = jest.fn(async () => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       consumedBy: []
-  //     }])
-  //     mockStorageEngine.findOutputById = jest.fn(() => [{
-  //       id: 33,
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       consumedBy: []
-  //     }])
-  //     mockParser.parse = jest.fn(() => ({
-  //       inputs: [{
-  //         prevTxId: 'someMockPrevTXID'
-  //       }],
-  //       outputs: [{
-  //         script: Buffer.from('016a', 'hex'),
-  //         satoshis: 1000
-  //       }],
-  //       id: 'MOCK_TX_ID'
-  //     }))
-  //     mockTopicManager.identifyAdmissibleOutputs = jest.fn(() => {
-  //       return {
-  //         outputsToAdmit: [0],
-  //         outputsToRetain: [33]
-  //       }
-  //     })
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {
-  //         Hello: mockLookupService
-  //       },
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
-
-  //     // Submit the utxo
-  //     const results = await engine.submit({
-  //       beef: exampleBeef,
-  //       topics: ['Hello']
-  //     })
-
-  //     // Test the correct outputs are admitted
-  //     expect(results).toEqual({
-  //       status: 'success',
-  //       topics: {
-  //         Hello: [0]
-  //       }
-  //     })
-  //   })
-  // })
-
-  describe('lookup', () => {
-    // it('Throws an error if no provider was given', async () => {
-    //   const engine = new Engine(
-    //     {
-    //       Hello: mockTopicManager
-    //     },
-    //     {
-    //       Hello: mockLookupService
-    //     },
-    //     mockStorageEngine,
-    //     mockChainTracker
-    //   )
-
-    //   // Perform a lookup request
-    //   await engine.lookup({
-    //     service: '',
-    //     query: {}
-    //   })
-    //   expect(mockLookupService.lookup).toThrow()
-    // })
-    // it('Throws an error if no query was given', async () => {
-    //   const engine = new Engine(
-    //     {
-    //       Hello: mockTopicManager
-    //     },
-    //     {
-    //       Hello: mockLookupService
-    //     },
-    //     mockStorageEngine,
-    //     mockChainTracker
-    //   )
-
-    //   // Perform a lookup request
-    //   await expect(engine.lookup({
-    //     service: 'abcdefg',
-    //     query: undefined
-    //   })).rejects.toThrow()
-    // })
-    it('Throws an error if no lookup service has this provider name', async () => {
-      const engine = new Engine(
-        {
-          Hello: mockTopicManager
-        },
-        {
-          Hello: mockLookupService
-        },
-        mockStorageEngine,
-        mockChainTracker
-      )
-
-      // Perform a lookup request
-      await expect(engine.lookup({
-        service: 'HelloWorld',
-        query: { name: 'Bob' }
-      })).rejects.toThrow()
+        // Perform a lookup request
+        const results = await engine.lookup({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
+        expect(results).toEqual({
+          outputs: [{
+            beef: mockOutput.beef,
+            outputIndex: mockOutput.outputIndex
+          }], type: 'output-list'
+        })
+      })
     })
-    // it('Calls the lookup function from the lookup service', async () => {
-    //   // TODO: Make the default storage engine return something...?
-    //   mockLookupService.lookup = jest.fn(() => [{}])
-    //   mockStorageEngine.findOutput = jest.fn(() => [{
-    //     id: 33,
-    //     txid: 'mockPrevTXID',
-    //     outputIndex: 0,
-    //     topic: 'Hello',
-    //     utxosConsumed: [],
-    //     consumedBy: [],
-    //     outputScript: Buffer.from('016a', 'hex')
-    //   }])
-    //   const engine = new Engine(
-    //     {
-    //       Hello: mockTopicManager
-    //     },
-    //     {
-    //       Hello: mockLookupService
-    //     },
-    //     mockStorageEngine,
-    //     mockChainTracker
-    //   )
+    describe('getUTXOHistory', () => {
+      it('Returns the given output if there is no history selector', async () => {
+        // Already tested above
+        return true
+      })
+      it('Invokes the history selector function with the correct data', async () => {
+        const mockedHistorySelector = jest.fn(async (beef, outputIndex, currentDepth) => {
+          if (currentDepth !== 2) {
+            return true
+          }
+          return false
+        })
+        mockLookupService.lookup = jest.fn(async () => [{
+          txid: 'mockTXID',
+          outputIndex: 0,
+          history: mockedHistorySelector
+        }])
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
 
-    //   // Perform a lookup request
-    //   await engine.lookup({
-    //     service: 'Hello',
-    //     query: { name: 'Bob' }
-    //   })
-    //   expect(mockLookupService.lookup).toHaveBeenCalledWith({
-    //     query: { name: 'Bob' }
-    //   })
-    // })
-    // describe('For each returned result', () => {
-    //   it('Finds the identified UTXO by its txid and vout', async () => {
-    //     // TODO: Make the default storage engine return something...?
-    //     mockLookupService.lookup = jest.fn(() => [{
-    //       txid: 'mockTXID',
-    //       outputIndex: 0,
-    //       history: undefined
-    //     }])
-    //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //       id: 33,
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: [],
-    //       consumedBy: [],
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     const engine = new Engine(
-    //       {
-    //         Hello: mockTopicManager
-    //       },
-    //       {
-    //         Hello: mockLookupService
-    //       },
-    //       mockStorageEngine,
-    //       mockChainTracker
-    //     )
+        // Perform a lookup request
+        await engine.lookup({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
+        expect(mockedHistorySelector).toHaveBeenCalledWith(
+          mockOutput.beef,
+          mockOutput.outputIndex,
+          0
+        )
+        expect(mockedHistorySelector).toReturnWith(Promise.resolve(true))
+      })
+      it('Returns undefined if history should not be traversed', async () => {
+        const mockedHistorySelector = jest.fn(async (beef, outputIndex, currentDepth) => {
+          return false
+        })
+        mockLookupService.lookup = jest.fn(async () => [{
+          txid: 'mockTXID',
+          outputIndex: 0,
+          history: mockedHistorySelector
+        }])
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
 
-    //     // Perform a lookup request
-    //     await engine.lookup({
-    //       service: 'Hello',
-    //       query: { name: 'Bob' }
-    //     })
-    //     expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(
-    //       'mockTXID',
-    //       0,
-    //       undefined,
-    //       false
-    //     )
-    //   })
-    //   //   it('Calls getUTXOHistory with the correct UTXO and history parameters', async () => {
-    //   //     // TODO: Make the default storage engine return something...?
-    //   //     mockLookupService.lookup = jest.fn(() => [{
-    //   //       txid: 'mockTXID',
-    //   //       outputIndex: 0,
-    //   //       history: undefined
-    //   //     }])
-    //   //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //   //       id: 33,
-    //   //       txid: 'mockPrevTXID',
-    //   //       outputIndex: 0,
-    //   //       topic: 'Hello',
-    //   //       utxosConsumed: [],
-    //   //       consumedBy: [],
-    //   //       outputScript: Buffer.from('016a', 'hex')
-    //   //     }])
-    //   //     const engine = new Engine(
-    //   //       {
-    //   //         Hello: mockTopicManager
-    //   //       },
-    //   //       {
-    //   //         Hello: mockLookupService
-    //   //       },
-    //   //       mockStorageEngine,
-    //   //       mockChainTracker
-    //   //     )
-    //   //     engine.getUTXOHistory = jest.fn(() => {
-    //   //       return {
-    //   //         txid: 'mockTXZID',
-    //   //         inputs: {}
-    //   //       }
-    //   //     })
+        // Perform a lookup request
+        const results = await engine.lookup({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
+        expect(mockedHistorySelector).toHaveBeenCalledWith(
+          mockOutput.beef,
+          mockOutput.outputIndex,
+          0
+        )
+        expect(results).toEqual({
+          outputs: [],
+          type: "output-list"
+        })
+      })
+      it('Returns undefined if the history selector is a number, and less than the current depth', async () => {
+        mockLookupService.lookup = jest.fn(async () => [{
+          txid: 'mockTXID',
+          outputIndex: 0,
+          history: -1
+        }])
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
 
-    //   //     // Perform a lookup request
-    //   //     await engine.lookup({
-    //   //       service: 'Hello',
-    //   //       query: { name: 'Bob' }
-    //   //     })
-    //   //     expect(engine.getUTXOHistory).toHaveBeenCalledWith(
-    //   //       {
-    //   //         consumedBy: [],
-    //   //         id: 33,
-    //   //         outputScript: Buffer.from('016a', 'hex'),
-    //   //         topic: 'Hello',
-    //   //         txid: 'mockPrevTXID',
-    //   //         utxosConsumed: [],
-    //   //         outputIndex: 0
-    //   //       },
-    //   //       undefined,
-    //   //       0
-    //   //     )
-    //   //   })
-    //   // })
-    //   // it('Returns the correct set of hydrated results', async () => {
-    //   //   // TODO: Make the default storage engine return something...?
-    //   //   mockLookupService.lookup = jest.fn(() => [{
-    //   //     txid: 'mockTXID',
-    //   //     outputIndex: 0,
-    //   //     history: undefined
-    //   //   }])
-    //   //   mockStorageEngine.findOutput = jest.fn(() => [{
-    //   //     id: 33,
-    //   //     txid: 'mockPrevTXID',
-    //   //     outputIndex: 0,
-    //   //     topic: 'Hello',
-    //   //     utxosConsumed: [],
-    //   //     consumedBy: [],
-    //   //     outputScript: Buffer.from('016a', 'hex')
-    //   //   }])
-    //   //   const engine = new Engine(
-    //   //     {
-    //   //       Hello: mockTopicManager
-    //   //     },
-    //   //     {
-    //   //       Hello: mockLookupService
-    //   //     },
-    //   //     mockStorageEngine,
-    //   //     mockChainTracker
-    //   //   )
-    //   //   engine.getUTXOHistory = jest.fn(() => {
-    //   //     return {
-    //   //       txid: 'mockTXID',
-    //   //       inputs: {}
-    //   //     }
-    //   //   })
+        // Perform a lookup request
+        const results = await engine.lookup({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
+        expect(results).toEqual({
+          outputs: [],
+          type: "output-list"
+        })
+      })
+      it('Returns the current output even if history should be traversed, if the current output is part of a transaction that does not consume any previous topical UTXOs', async () => {
+        mockLookupService.lookup = jest.fn(async () => [{
+          txid: 'mockTXID',
+          outputIndex: 0,
+          history: 1
+        }])
+        mockStorageEngine.findOutput = jest.fn(async () => mockOutput)
+        const engine = new Engine(
+          {
+            Hello: mockTopicManager
+          },
+          {
+            Hello: mockLookupService
+          },
+          mockStorageEngine,
+          mockChainTracker
+        )
 
-    //   //   // Perform a lookup request
-    //   //   const results = await engine.lookup({
-    //   //     service: 'Hello',
-    //   //     query: { name: 'Bob' }
-    //   //   })
-    //   //   expect(results).toEqual([{ inputs: {}, txid: 'mockTXID' }])
-    //   // })
-    // })
-    // describe('getUTXOHistory', () => {
-    //   it('Returns the given output if there is no history selector', async () => {
-    //     // Already tested above
-    //     return true
-    //   })
-    //   it('Invokes the history selector function with the correct data', async () => {
-    //     // TODO: Make the default storage engine return something...?
-    //     const mockedHistorySelector = jest.fn((output, currentDepth) => {
-    //       if (currentDepth !== 2) {
-    //         return true
-    //       }
-    //       return false
-    //     })
-    //     mockLookupService.lookup = jest.fn(() => [{
-    //       txid: 'mockTXID',
-    //       outputIndex: 0,
-    //       history: mockedHistorySelector
-    //     }])
-    //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: [],
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     const engine = new Engine(
-    //       {
-    //         Hello: mockTopicManager
-    //       },
-    //       {
-    //         Hello: mockLookupService
-    //       },
-    //       mockStorageEngine,
-    //       mockChainTracker
-    //     )
+        // Perform a lookup request
+        const results = await engine.lookup({
+          service: 'Hello',
+          query: { name: 'Bob' }
+        })
 
-    //     // Perform a lookup request
-    //     await engine.lookup({
-    //       service: 'Hello',
-    //       query: { name: 'Bob' }
-    //     })
-    //     expect(mockedHistorySelector).toHaveBeenCalledWith(
-    //       {
-    //         outputScript: Buffer.from('016a', 'hex'),
-    //         topic: 'Hello',
-    //         txid: 'mockPrevTXID',
-    //         utxosConsumed: [],
-    //         outputIndex: 0
-    //       },
-    //       0
-    //     )
-    //     expect(mockedHistorySelector).toReturnWith(true)
-    //   })
-    //   it('Returns undefined if history should not be traversed', async () => {
-    //     // TODO: Make the default storage engine return something...?
-    //     const mockedHistorySelector = jest.fn((output, currentDepth) => {
-    //       return false
-    //     })
-    //     mockLookupService.lookup = jest.fn(() => [{
-    //       txid: 'mockTXID',
-    //       outputIndex: 0,
-    //       history: mockedHistorySelector
-    //     }])
-    //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: [],
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     const engine = new Engine(
-    //       {
-    //         Hello: mockTopicManager
-    //       },
-    //       {
-    //         Hello: mockLookupService
-    //       },
-    //       mockStorageEngine,
-    //       mockChainTracker
-    //     )
+        expect(results).toEqual({
+          outputs: [{
+            beef: mockOutput.beef,
+            outputIndex: mockOutput.outputIndex
+          }], type: 'output-list'
+        })
+      })
+      // it('Traversing history, calls findOutput with any output consumed by this UTXO', async () => {
+      //   mockLookupService.lookup = jest.fn(async () => [{
+      //     txid: 'mockTXID',
+      //     outputIndex: 0,
+      //     history: 1
+      //   }])
+      //   mockStorageEngine.findOutput = jest.fn(async () => ({
+      //     ...mockOutput,
+      //     outputsConsumed: [{
+      //       txid: examplePreviousTXID,
+      //       outputIndex: 0
+      //     }]
+      //   }))
+      //   const engine = new Engine(
+      //     {
+      //       Hello: mockTopicManager
+      //     },
+      //     {
+      //       Hello: mockLookupService
+      //     },
+      //     mockStorageEngine,
+      //     mockChainTracker
+      //   )
 
-    //     // Perform a lookup request
-    //     const results = await engine.lookup({
-    //       service: 'Hello',
-    //       query: { name: 'Bob' }
-    //     })
-    //     expect(mockedHistorySelector).toHaveBeenCalledWith(
-    //       {
-    //         outputScript: Buffer.from('016a', 'hex'),
-    //         topic: 'Hello',
-    //         txid: 'mockPrevTXID',
-    //         utxosConsumed: [],
-    //         outputIndex: 0
-    //       },
-    //       0
-    //     )
-    //     expect(results).toEqual([])
-    //   })
-    //   it('Returns undefined if the history selector is a number, and less than the current depth', async () => {
-    //     mockLookupService.lookup = jest.fn(() => [{
-    //       txid: 'mockTXID',
-    //       outputIndex: 0,
-    //       history: -1
-    //     }])
-    //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: [],
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     const engine = new Engine(
-    //       {
-    //         Hello: mockTopicManager
-    //       },
-    //       {
-    //         Hello: mockLookupService
-    //       },
-    //       mockStorageEngine,
-    //       mockChainTracker
-    //     )
+      //   // Perform a lookup request
+      //   await engine.lookup({
+      //     service: 'Hello',
+      //     query: { name: 'Bob' }
+      //   })
 
-    //     // Perform a lookup request
-    //     const results = await engine.lookup({
-    //       service: 'Hello',
-    //       query: { name: 'Bob' }
-    //     })
-    //     expect(results).toEqual([])
-    //   })
-    //   it('Returns the current output even if history should be traversed, if the current output is part of a transaction that does not consume any previous topical UTXOs', async () => {
-    //     mockLookupService.lookup = jest.fn(() => [{
-    //       txid: 'mockTXID',
-    //       outputIndex: 0,
-    //       history: 1
-    //     }])
-    //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: [],
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     const engine = new Engine(
-    //       {
-    //         Hello: mockTopicManager
-    //       },
-    //       {
-    //         Hello: mockLookupService
-    //       },
-    //       mockStorageEngine,
-    //       mockChainTracker
-    //     )
-
-    //     // Perform a lookup request
-    //     const results = await engine.lookup({
-    //       service: 'Hello',
-    //       query: { name: 'Bob' }
-    //     })
-    //     // TODO: Validate this is the correct test
-    //     expect(results).toEqual([{
-    //       inputs: undefined,
-    //       mapiResponses: undefined,
-    //       outputScript: '016a',
-    //       proof: undefined,
-    //       rawTx: undefined,
-    //       satoshis: undefined,
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0
-    //     }])
-    //   })
-    //   it('Traversing history, calls findUTXOById with the ID of any UTXO consumed by this UTXO', async () => {
-    //     mockLookupService.lookup = jest.fn(() => [{
-    //       txid: 'mockTXID',
-    //       outputIndex: 0,
-    //       history: 1
-    //     }])
-    //     mockStorageEngine.findOutput = jest.fn(() => [{
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: '[33]',
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     mockStorageEngine.findOutputById = jest.fn(() => [{
-    //       txid: 'mockPrevTXID',
-    //       outputIndex: 0,
-    //       topic: 'Hello',
-    //       utxosConsumed: [],
-    //       outputScript: Buffer.from('016a', 'hex')
-    //     }])
-    //     const engine = new Engine(
-    //       {
-    //         Hello: mockTopicManager
-    //       },
-    //       {
-    //         Hello: mockLookupService
-    //       },
-    //       mockStorageEngine,
-    //       mockChainTracker
-    //     )
-
-    //     // Perform a lookup request
-    //     await engine.lookup({
-    //       service: 'Hello',
-    //       query: { name: 'Bob' }
-    //     })
-
-    //     expect(mockStorageEngine.findOutputById).toHaveBeenCalledWith(33)
-    //   })
-    //   it('Returns the correct envelope based on the history traversal process', async () => {
-    //     // TODO: Come up with some test data for a simple case, but different than the above code.
-    //   })
-    //   it('Returns the correct envelope based on the history traversal process for a more complex multi-layer multi-output graph', async () => {
-    //     // TODO: Come up with some test data to test the history traversal process better
-    //   })
-    // })
+      //   expect(mockStorageEngine.findOutput).toHaveBeenCalledWith()
+      // })
+      // it('Returns the correct envelope based on the history traversal process', async () => {
+      //   // TODO: Come up with some test data for a simple case, but different than the above code.
+      // })
+      // it('Returns the correct envelope based on the history traversal process for a more complex multi-layer multi-output graph', async () => {
+      //   // TODO: Come up with some test data to test the history traversal process better
+      // })
+    })
     // describe('deleteUTXODeep', () => {
     //   it('Finds UTXO by ID if no output was provided', async () => {
 

@@ -260,7 +260,7 @@ export default class Engine {
      * @param id 
      * @returns {Promise<EnvelopeEvidenceApi>}
      */
-    private async getUTXOHistory(
+    async getUTXOHistory(
         output: Output,
         historySelector?: ((beef: number[], outputIndex: number, currentDepth: number) => Promise<boolean>) | number, currentDepth = 0,
     ): Promise<Output | undefined> {

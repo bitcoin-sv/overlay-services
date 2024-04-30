@@ -691,462 +691,464 @@ describe('BSV Overlay Services Engine', () => {
   //   })
   // })
 
-  // // describe('lookup', () => {
-  // //   it('Throws an error if no provider was given', async () => {
-  // //     const engine = new Engine(
-  // //       {
-  // //         Hello: mockTopicManager
-  // //       },
-  // //       {
-  // //         Hello: mockLookupService
-  // //       },
-  // //       mockStorageEngine,
-  // //       mockChainTracker
-  // //     )
+  describe('lookup', () => {
+    // it('Throws an error if no provider was given', async () => {
+    //   const engine = new Engine(
+    //     {
+    //       Hello: mockTopicManager
+    //     },
+    //     {
+    //       Hello: mockLookupService
+    //     },
+    //     mockStorageEngine,
+    //     mockChainTracker
+    //   )
 
-  // //     // Perform a lookup request
-  // //     await engine.lookup({
-  // //       query: {}
-  // //     })
-  // //     expect(mockLookupService.lookup).toThrowError()
-  // //   })
-  // //   it('Throws an error if no query was given', async () => {
-  // //     const engine = new Engine(
-  // //       {
-  // //         Hello: mockTopicManager
-  // //       },
-  // //       {
-  // //         Hello: mockLookupService
-  // //       },
-  // //       mockStorageEngine,
-  // //       mockChainTracker
-  // //     )
+    //   // Perform a lookup request
+    //   await engine.lookup({
+    //     service: '',
+    //     query: {}
+    //   })
+    //   expect(mockLookupService.lookup).toThrow()
+    // })
+    // it('Throws an error if no query was given', async () => {
+    //   const engine = new Engine(
+    //     {
+    //       Hello: mockTopicManager
+    //     },
+    //     {
+    //       Hello: mockLookupService
+    //     },
+    //     mockStorageEngine,
+    //     mockChainTracker
+    //   )
 
-  // //     // Perform a lookup request
-  // //     await expect(engine.lookup({
-  // //       service: 'abcdefg'
-  // //     })).rejects.toThrow()
-  // //   })
-  // //   it('Throws an error if no lookup service has this provider name', async () => {
-  // //     const engine = new Engine(
-  // //       {
-  // //         Hello: mockTopicManager
-  // //       },
-  // //       {
-  // //         Hello: mockLookupService
-  // //       },
-  // //       mockStorageEngine,
-  // //       mockChainTracker
-  // //     )
+    //   // Perform a lookup request
+    //   await expect(engine.lookup({
+    //     service: 'abcdefg',
+    //     query: undefined
+    //   })).rejects.toThrow()
+    // })
+    it('Throws an error if no lookup service has this provider name', async () => {
+      const engine = new Engine(
+        {
+          Hello: mockTopicManager
+        },
+        {
+          Hello: mockLookupService
+        },
+        mockStorageEngine,
+        mockChainTracker
+      )
 
-  // //     // Perform a lookup request
-  // //     await expect(engine.lookup({
-  // //       service: 'HelloWorld',
-  // //       query: { name: 'Bob' }
-  // //     })).rejects.toThrow()
-  // //   })
-  // //   it('Calls the lookup function from the lookup service', async () => {
-  // //     // TODO: Make the default storage engine return something...?
-  // //     mockLookupService.lookup = jest.fn(() => [{}])
-  // //     mockStorageEngine.findOutput = jest.fn(() => [{
-  // //       id: 33,
-  // //       txid: 'mockPrevTXID',
-  // //       outputIndex: 0,
-  // //       topic: 'Hello',
-  // //       utxosConsumed: [],
-  // //       consumedBy: [],
-  // //       outputScript: Buffer.from('016a', 'hex')
-  // //     }])
-  // //     const engine = new Engine(
-  // //       {
-  // //         Hello: mockTopicManager
-  // //       },
-  // //       {
-  // //         Hello: mockLookupService
-  // //       },
-  // //       mockStorageEngine,
-  // //       mockChainTracker
-  // //     )
+      // Perform a lookup request
+      await expect(engine.lookup({
+        service: 'HelloWorld',
+        query: { name: 'Bob' }
+      })).rejects.toThrow()
+    })
+    // it('Calls the lookup function from the lookup service', async () => {
+    //   // TODO: Make the default storage engine return something...?
+    //   mockLookupService.lookup = jest.fn(() => [{}])
+    //   mockStorageEngine.findOutput = jest.fn(() => [{
+    //     id: 33,
+    //     txid: 'mockPrevTXID',
+    //     outputIndex: 0,
+    //     topic: 'Hello',
+    //     utxosConsumed: [],
+    //     consumedBy: [],
+    //     outputScript: Buffer.from('016a', 'hex')
+    //   }])
+    //   const engine = new Engine(
+    //     {
+    //       Hello: mockTopicManager
+    //     },
+    //     {
+    //       Hello: mockLookupService
+    //     },
+    //     mockStorageEngine,
+    //     mockChainTracker
+    //   )
 
-  // //     // Perform a lookup request
-  // //     await engine.lookup({
-  // //       service: 'Hello',
-  // //       query: { name: 'Bob' }
-  // //     })
-  // //     expect(mockLookupService.lookup).toHaveBeenCalledWith({
-  // //       query: { name: 'Bob' }
-  // //     })
-  // //   })
-  // //   describe('For each returned result', () => {
-  // //     it('Finds the identified UTXO by its txid and vout', async () => {
-  // //       // TODO: Make the default storage engine return something...?
-  // //       mockLookupService.lookup = jest.fn(() => [{
-  // //         txid: 'mockTXID',
-  // //         outputIndex: 0,
-  // //         history: undefined
-  // //       }])
-  // //       mockStorageEngine.findOutput = jest.fn(() => [{
-  // //         id: 33,
-  // //         txid: 'mockPrevTXID',
-  // //         outputIndex: 0,
-  // //         topic: 'Hello',
-  // //         utxosConsumed: [],
-  // //         consumedBy: [],
-  // //         outputScript: Buffer.from('016a', 'hex')
-  // //       }])
-  // //       const engine = new Engine(
-  // //         {
-  // //           Hello: mockTopicManager
-  // //         },
-  // //         {
-  // //           Hello: mockLookupService
-  // //         },
-  // //         mockStorageEngine,
-  // //         mockChainTracker
-  // //       )
+    //   // Perform a lookup request
+    //   await engine.lookup({
+    //     service: 'Hello',
+    //     query: { name: 'Bob' }
+    //   })
+    //   expect(mockLookupService.lookup).toHaveBeenCalledWith({
+    //     query: { name: 'Bob' }
+    //   })
+    // })
+    // describe('For each returned result', () => {
+    //   it('Finds the identified UTXO by its txid and vout', async () => {
+    //     // TODO: Make the default storage engine return something...?
+    //     mockLookupService.lookup = jest.fn(() => [{
+    //       txid: 'mockTXID',
+    //       outputIndex: 0,
+    //       history: undefined
+    //     }])
+    //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //       id: 33,
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: [],
+    //       consumedBy: [],
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     const engine = new Engine(
+    //       {
+    //         Hello: mockTopicManager
+    //       },
+    //       {
+    //         Hello: mockLookupService
+    //       },
+    //       mockStorageEngine,
+    //       mockChainTracker
+    //     )
 
-  // //       // Perform a lookup request
-  // //       await engine.lookup({
-  // //         service: 'Hello',
-  // //         query: { name: 'Bob' }
-  // //       })
-  // //       expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(
-  // //         'mockTXID',
-  // //         0,
-  // //         undefined,
-  // //         false
-  // //       )
-  // //     })
-  // //     it('Calls getUTXOHistory with the correct UTXO and history parameters', async () => {
-  // //       // TODO: Make the default storage engine return something...?
-  // //       mockLookupService.lookup = jest.fn(() => [{
-  // //         txid: 'mockTXID',
-  // //         outputIndex: 0,
-  // //         history: undefined
-  // //       }])
-  // //       mockStorageEngine.findOutput = jest.fn(() => [{
-  // //         id: 33,
-  // //         txid: 'mockPrevTXID',
-  // //         outputIndex: 0,
-  // //         topic: 'Hello',
-  // //         utxosConsumed: [],
-  // //         consumedBy: [],
-  // //         outputScript: Buffer.from('016a', 'hex')
-  // //       }])
-  // //       const engine = new Engine(
-  // //         {
-  // //           Hello: mockTopicManager
-  // //         },
-  // //         {
-  // //           Hello: mockLookupService
-  // //         },
-  // //         mockStorageEngine,
-  // //         mockChainTracker
-  // //       )
-  // //       engine.getUTXOHistory = jest.fn(() => {
-  // //         return {
-  // //           txid: 'mockTXZID',
-  // //           inputs: {}
-  // //         }
-  // //       })
+    //     // Perform a lookup request
+    //     await engine.lookup({
+    //       service: 'Hello',
+    //       query: { name: 'Bob' }
+    //     })
+    //     expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(
+    //       'mockTXID',
+    //       0,
+    //       undefined,
+    //       false
+    //     )
+    //   })
+    //   //   it('Calls getUTXOHistory with the correct UTXO and history parameters', async () => {
+    //   //     // TODO: Make the default storage engine return something...?
+    //   //     mockLookupService.lookup = jest.fn(() => [{
+    //   //       txid: 'mockTXID',
+    //   //       outputIndex: 0,
+    //   //       history: undefined
+    //   //     }])
+    //   //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //   //       id: 33,
+    //   //       txid: 'mockPrevTXID',
+    //   //       outputIndex: 0,
+    //   //       topic: 'Hello',
+    //   //       utxosConsumed: [],
+    //   //       consumedBy: [],
+    //   //       outputScript: Buffer.from('016a', 'hex')
+    //   //     }])
+    //   //     const engine = new Engine(
+    //   //       {
+    //   //         Hello: mockTopicManager
+    //   //       },
+    //   //       {
+    //   //         Hello: mockLookupService
+    //   //       },
+    //   //       mockStorageEngine,
+    //   //       mockChainTracker
+    //   //     )
+    //   //     engine.getUTXOHistory = jest.fn(() => {
+    //   //       return {
+    //   //         txid: 'mockTXZID',
+    //   //         inputs: {}
+    //   //       }
+    //   //     })
 
-  // //       // Perform a lookup request
-  // //       await engine.lookup({
-  // //         service: 'Hello',
-  // //         query: { name: 'Bob' }
-  // //       })
-  // //       expect(engine.getUTXOHistory).toHaveBeenCalledWith(
-  // //         {
-  // //           consumedBy: [],
-  // //           id: 33,
-  // //           outputScript: Buffer.from('016a', 'hex'),
-  // //           topic: 'Hello',
-  // //           txid: 'mockPrevTXID',
-  // //           utxosConsumed: [],
-  // //           outputIndex: 0
-  // //         },
-  // //         undefined,
-  // //         0
-  // //       )
-  // //     })
-  // //   })
-  // //   it('Returns the correct set of hydrated results', async () => {
-  // //     // TODO: Make the default storage engine return something...?
-  // //     mockLookupService.lookup = jest.fn(() => [{
-  // //       txid: 'mockTXID',
-  // //       outputIndex: 0,
-  // //       history: undefined
-  // //     }])
-  // //     mockStorageEngine.findOutput = jest.fn(() => [{
-  // //       id: 33,
-  // //       txid: 'mockPrevTXID',
-  // //       outputIndex: 0,
-  // //       topic: 'Hello',
-  // //       utxosConsumed: [],
-  // //       consumedBy: [],
-  // //       outputScript: Buffer.from('016a', 'hex')
-  // //     }])
-  // //     const engine = new Engine(
-  // //       {
-  // //         Hello: mockTopicManager
-  // //       },
-  // //       {
-  // //         Hello: mockLookupService
-  // //       },
-  // //       mockStorageEngine,
-  // //       mockChainTracker
-  // //     )
-  // //     engine.getUTXOHistory = jest.fn(() => {
-  // //       return {
-  // //         txid: 'mockTXID',
-  // //         inputs: {}
-  // //       }
-  // //     })
+    //   //     // Perform a lookup request
+    //   //     await engine.lookup({
+    //   //       service: 'Hello',
+    //   //       query: { name: 'Bob' }
+    //   //     })
+    //   //     expect(engine.getUTXOHistory).toHaveBeenCalledWith(
+    //   //       {
+    //   //         consumedBy: [],
+    //   //         id: 33,
+    //   //         outputScript: Buffer.from('016a', 'hex'),
+    //   //         topic: 'Hello',
+    //   //         txid: 'mockPrevTXID',
+    //   //         utxosConsumed: [],
+    //   //         outputIndex: 0
+    //   //       },
+    //   //       undefined,
+    //   //       0
+    //   //     )
+    //   //   })
+    //   // })
+    //   // it('Returns the correct set of hydrated results', async () => {
+    //   //   // TODO: Make the default storage engine return something...?
+    //   //   mockLookupService.lookup = jest.fn(() => [{
+    //   //     txid: 'mockTXID',
+    //   //     outputIndex: 0,
+    //   //     history: undefined
+    //   //   }])
+    //   //   mockStorageEngine.findOutput = jest.fn(() => [{
+    //   //     id: 33,
+    //   //     txid: 'mockPrevTXID',
+    //   //     outputIndex: 0,
+    //   //     topic: 'Hello',
+    //   //     utxosConsumed: [],
+    //   //     consumedBy: [],
+    //   //     outputScript: Buffer.from('016a', 'hex')
+    //   //   }])
+    //   //   const engine = new Engine(
+    //   //     {
+    //   //       Hello: mockTopicManager
+    //   //     },
+    //   //     {
+    //   //       Hello: mockLookupService
+    //   //     },
+    //   //     mockStorageEngine,
+    //   //     mockChainTracker
+    //   //   )
+    //   //   engine.getUTXOHistory = jest.fn(() => {
+    //   //     return {
+    //   //       txid: 'mockTXID',
+    //   //       inputs: {}
+    //   //     }
+    //   //   })
 
-  // //     // Perform a lookup request
-  // //     const results = await engine.lookup({
-  // //       service: 'Hello',
-  // //       query: { name: 'Bob' }
-  // //     })
-  // //     expect(results).toEqual([{ inputs: {}, txid: 'mockTXID' }])
-  // //   })
-  // // })
-  // describe('getUTXOHistory', () => {
-  //   it('Returns the given output if there is no history selector', async () => {
-  //     // Already tested above
-  //     return true
-  //   })
-  //   it('Invokes the history selector function with the correct data', async () => {
-  //     // TODO: Make the default storage engine return something...?
-  //     const mockedHistorySelector = jest.fn((output, currentDepth) => {
-  //       if (currentDepth !== 2) {
-  //         return true
-  //       }
-  //       return false
-  //     })
-  //     mockLookupService.lookup = jest.fn(() => [{
-  //       txid: 'mockTXID',
-  //       outputIndex: 0,
-  //       history: mockedHistorySelector
-  //     }])
-  //     mockStorageEngine.findOutput = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       outputScript: Buffer.from('016a', 'hex')
-  //     }])
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {
-  //         Hello: mockLookupService
-  //       },
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
+    //   //   // Perform a lookup request
+    //   //   const results = await engine.lookup({
+    //   //     service: 'Hello',
+    //   //     query: { name: 'Bob' }
+    //   //   })
+    //   //   expect(results).toEqual([{ inputs: {}, txid: 'mockTXID' }])
+    //   // })
+    // })
+    // describe('getUTXOHistory', () => {
+    //   it('Returns the given output if there is no history selector', async () => {
+    //     // Already tested above
+    //     return true
+    //   })
+    //   it('Invokes the history selector function with the correct data', async () => {
+    //     // TODO: Make the default storage engine return something...?
+    //     const mockedHistorySelector = jest.fn((output, currentDepth) => {
+    //       if (currentDepth !== 2) {
+    //         return true
+    //       }
+    //       return false
+    //     })
+    //     mockLookupService.lookup = jest.fn(() => [{
+    //       txid: 'mockTXID',
+    //       outputIndex: 0,
+    //       history: mockedHistorySelector
+    //     }])
+    //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: [],
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     const engine = new Engine(
+    //       {
+    //         Hello: mockTopicManager
+    //       },
+    //       {
+    //         Hello: mockLookupService
+    //       },
+    //       mockStorageEngine,
+    //       mockChainTracker
+    //     )
 
-  //     // Perform a lookup request
-  //     await engine.lookup({
-  //       service: 'Hello',
-  //       query: { name: 'Bob' }
-  //     })
-  //     expect(mockedHistorySelector).toHaveBeenCalledWith(
-  //       {
-  //         outputScript: Buffer.from('016a', 'hex'),
-  //         topic: 'Hello',
-  //         txid: 'mockPrevTXID',
-  //         utxosConsumed: [],
-  //         outputIndex: 0
-  //       },
-  //       0
-  //     )
-  //     expect(mockedHistorySelector).toReturnWith(true)
-  //   })
-  //   it('Returns undefined if history should not be traversed', async () => {
-  //     // TODO: Make the default storage engine return something...?
-  //     const mockedHistorySelector = jest.fn((output, currentDepth) => {
-  //       return false
-  //     })
-  //     mockLookupService.lookup = jest.fn(() => [{
-  //       txid: 'mockTXID',
-  //       outputIndex: 0,
-  //       history: mockedHistorySelector
-  //     }])
-  //     mockStorageEngine.findOutput = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       outputScript: Buffer.from('016a', 'hex')
-  //     }])
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {
-  //         Hello: mockLookupService
-  //       },
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
+    //     // Perform a lookup request
+    //     await engine.lookup({
+    //       service: 'Hello',
+    //       query: { name: 'Bob' }
+    //     })
+    //     expect(mockedHistorySelector).toHaveBeenCalledWith(
+    //       {
+    //         outputScript: Buffer.from('016a', 'hex'),
+    //         topic: 'Hello',
+    //         txid: 'mockPrevTXID',
+    //         utxosConsumed: [],
+    //         outputIndex: 0
+    //       },
+    //       0
+    //     )
+    //     expect(mockedHistorySelector).toReturnWith(true)
+    //   })
+    //   it('Returns undefined if history should not be traversed', async () => {
+    //     // TODO: Make the default storage engine return something...?
+    //     const mockedHistorySelector = jest.fn((output, currentDepth) => {
+    //       return false
+    //     })
+    //     mockLookupService.lookup = jest.fn(() => [{
+    //       txid: 'mockTXID',
+    //       outputIndex: 0,
+    //       history: mockedHistorySelector
+    //     }])
+    //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: [],
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     const engine = new Engine(
+    //       {
+    //         Hello: mockTopicManager
+    //       },
+    //       {
+    //         Hello: mockLookupService
+    //       },
+    //       mockStorageEngine,
+    //       mockChainTracker
+    //     )
 
-  //     // Perform a lookup request
-  //     const results = await engine.lookup({
-  //       service: 'Hello',
-  //       query: { name: 'Bob' }
-  //     })
-  //     expect(mockedHistorySelector).toHaveBeenCalledWith(
-  //       {
-  //         outputScript: Buffer.from('016a', 'hex'),
-  //         topic: 'Hello',
-  //         txid: 'mockPrevTXID',
-  //         utxosConsumed: [],
-  //         outputIndex: 0
-  //       },
-  //       0
-  //     )
-  //     expect(results).toEqual([])
-  //   })
-  //   it('Returns undefined if the history selector is a number, and less than the current depth', async () => {
-  //     mockLookupService.lookup = jest.fn(() => [{
-  //       txid: 'mockTXID',
-  //       outputIndex: 0,
-  //       history: -1
-  //     }])
-  //     mockStorageEngine.findOutput = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       outputScript: Buffer.from('016a', 'hex')
-  //     }])
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {
-  //         Hello: mockLookupService
-  //       },
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
+    //     // Perform a lookup request
+    //     const results = await engine.lookup({
+    //       service: 'Hello',
+    //       query: { name: 'Bob' }
+    //     })
+    //     expect(mockedHistorySelector).toHaveBeenCalledWith(
+    //       {
+    //         outputScript: Buffer.from('016a', 'hex'),
+    //         topic: 'Hello',
+    //         txid: 'mockPrevTXID',
+    //         utxosConsumed: [],
+    //         outputIndex: 0
+    //       },
+    //       0
+    //     )
+    //     expect(results).toEqual([])
+    //   })
+    //   it('Returns undefined if the history selector is a number, and less than the current depth', async () => {
+    //     mockLookupService.lookup = jest.fn(() => [{
+    //       txid: 'mockTXID',
+    //       outputIndex: 0,
+    //       history: -1
+    //     }])
+    //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: [],
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     const engine = new Engine(
+    //       {
+    //         Hello: mockTopicManager
+    //       },
+    //       {
+    //         Hello: mockLookupService
+    //       },
+    //       mockStorageEngine,
+    //       mockChainTracker
+    //     )
 
-  //     // Perform a lookup request
-  //     const results = await engine.lookup({
-  //       service: 'Hello',
-  //       query: { name: 'Bob' }
-  //     })
-  //     expect(results).toEqual([])
-  //   })
-  //   it('Returns the current output even if history should be traversed, if the current output is part of a transaction that does not consume any previous topical UTXOs', async () => {
-  //     mockLookupService.lookup = jest.fn(() => [{
-  //       txid: 'mockTXID',
-  //       outputIndex: 0,
-  //       history: 1
-  //     }])
-  //     mockStorageEngine.findOutput = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       outputScript: Buffer.from('016a', 'hex')
-  //     }])
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {
-  //         Hello: mockLookupService
-  //       },
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
+    //     // Perform a lookup request
+    //     const results = await engine.lookup({
+    //       service: 'Hello',
+    //       query: { name: 'Bob' }
+    //     })
+    //     expect(results).toEqual([])
+    //   })
+    //   it('Returns the current output even if history should be traversed, if the current output is part of a transaction that does not consume any previous topical UTXOs', async () => {
+    //     mockLookupService.lookup = jest.fn(() => [{
+    //       txid: 'mockTXID',
+    //       outputIndex: 0,
+    //       history: 1
+    //     }])
+    //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: [],
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     const engine = new Engine(
+    //       {
+    //         Hello: mockTopicManager
+    //       },
+    //       {
+    //         Hello: mockLookupService
+    //       },
+    //       mockStorageEngine,
+    //       mockChainTracker
+    //     )
 
-  //     // Perform a lookup request
-  //     const results = await engine.lookup({
-  //       service: 'Hello',
-  //       query: { name: 'Bob' }
-  //     })
-  //     // TODO: Validate this is the correct test
-  //     expect(results).toEqual([{
-  //       inputs: undefined,
-  //       mapiResponses: undefined,
-  //       outputScript: '016a',
-  //       proof: undefined,
-  //       rawTx: undefined,
-  //       satoshis: undefined,
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0
-  //     }])
-  //   })
-  //   it('Traversing history, calls findUTXOById with the ID of any UTXO consumed by this UTXO', async () => {
-  //     mockLookupService.lookup = jest.fn(() => [{
-  //       txid: 'mockTXID',
-  //       outputIndex: 0,
-  //       history: 1
-  //     }])
-  //     mockStorageEngine.findOutput = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: '[33]',
-  //       outputScript: Buffer.from('016a', 'hex')
-  //     }])
-  //     mockStorageEngine.findOutputById = jest.fn(() => [{
-  //       txid: 'mockPrevTXID',
-  //       outputIndex: 0,
-  //       topic: 'Hello',
-  //       utxosConsumed: [],
-  //       outputScript: Buffer.from('016a', 'hex')
-  //     }])
-  //     const engine = new Engine(
-  //       {
-  //         Hello: mockTopicManager
-  //       },
-  //       {
-  //         Hello: mockLookupService
-  //       },
-  //       mockStorageEngine,
-  //       mockChainTracker
-  //     )
+    //     // Perform a lookup request
+    //     const results = await engine.lookup({
+    //       service: 'Hello',
+    //       query: { name: 'Bob' }
+    //     })
+    //     // TODO: Validate this is the correct test
+    //     expect(results).toEqual([{
+    //       inputs: undefined,
+    //       mapiResponses: undefined,
+    //       outputScript: '016a',
+    //       proof: undefined,
+    //       rawTx: undefined,
+    //       satoshis: undefined,
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0
+    //     }])
+    //   })
+    //   it('Traversing history, calls findUTXOById with the ID of any UTXO consumed by this UTXO', async () => {
+    //     mockLookupService.lookup = jest.fn(() => [{
+    //       txid: 'mockTXID',
+    //       outputIndex: 0,
+    //       history: 1
+    //     }])
+    //     mockStorageEngine.findOutput = jest.fn(() => [{
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: '[33]',
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     mockStorageEngine.findOutputById = jest.fn(() => [{
+    //       txid: 'mockPrevTXID',
+    //       outputIndex: 0,
+    //       topic: 'Hello',
+    //       utxosConsumed: [],
+    //       outputScript: Buffer.from('016a', 'hex')
+    //     }])
+    //     const engine = new Engine(
+    //       {
+    //         Hello: mockTopicManager
+    //       },
+    //       {
+    //         Hello: mockLookupService
+    //       },
+    //       mockStorageEngine,
+    //       mockChainTracker
+    //     )
 
-  //     // Perform a lookup request
-  //     await engine.lookup({
-  //       service: 'Hello',
-  //       query: { name: 'Bob' }
-  //     })
+    //     // Perform a lookup request
+    //     await engine.lookup({
+    //       service: 'Hello',
+    //       query: { name: 'Bob' }
+    //     })
 
-  //     expect(mockStorageEngine.findOutputById).toHaveBeenCalledWith(33)
-  //   })
-  //   it('Returns the correct envelope based on the history traversal process', async () => {
-  //     // TODO: Come up with some test data for a simple case, but different than the above code.
-  //   })
-  //   it('Returns the correct envelope based on the history traversal process for a more complex multi-layer multi-output graph', async () => {
-  //     // TODO: Come up with some test data to test the history traversal process better
-  //   })
-  // })
-  // describe('deleteUTXODeep', () => {
-  //   it('Finds UTXO by ID if no output was provided', async () => {
+    //     expect(mockStorageEngine.findOutputById).toHaveBeenCalledWith(33)
+    //   })
+    //   it('Returns the correct envelope based on the history traversal process', async () => {
+    //     // TODO: Come up with some test data for a simple case, but different than the above code.
+    //   })
+    //   it('Returns the correct envelope based on the history traversal process for a more complex multi-layer multi-output graph', async () => {
+    //     // TODO: Come up with some test data to test the history traversal process better
+    //   })
+    // })
+    // describe('deleteUTXODeep', () => {
+    //   it('Finds UTXO by ID if no output was provided', async () => {
 
-  //   })
-  //   it('Finds UTXO by TXID and VOUT if no ID was provided', async () => {
+    //   })
+    //   it('Finds UTXO by TXID and VOUT if no ID was provided', async () => {
 
-  //   })
-  //   it('Throws an error if no output can be found', async () => {
+    //   })
+    //   it('Throws an error if no output can be found', async () => {
 
-  //   })
-  //   describe('When no more UTXOs are consumed by this UTXO', () => {
-  //     it('Deletes the UTXO by ID from the storage engine', async () => {
+    //   })
+    //   describe('When no more UTXOs are consumed by this UTXO', () => {
+    //     it('Deletes the UTXO by ID from the storage engine', async () => {
 
-  //     })
-  //     it('Notifies all lookup services about the deletion of the UTXO', async () => {
+    //     })
+    //     it('Notifies all lookup services about the deletion of the UTXO', async () => {
 
-  //     })
-  //   })
-  //   it('For each UTXO that this UTXO consumes, finds the consumed UTXO by its ID and removes reference to this one', async () => {
+    //     })
+    //   })
+    //   it('For each UTXO that this UTXO consumes, finds the consumed UTXO by its ID and removes reference to this one', async () => {
 
-  //   })
-  // })
+    //   })
+  })
 })

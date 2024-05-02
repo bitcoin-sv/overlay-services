@@ -3,7 +3,7 @@
  */
 export type AdmittanceInstructions = {
     /**
-     * The indecies of all admissable outputs into the managed topic from the provided transaction.
+     * The indicies of all admissable outputs into the managed topic from the provided transaction.
      */
     outputsToAdmit: number[]
 

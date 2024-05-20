@@ -2,7 +2,7 @@
 
 BSV BLOCKCHAIN | Overlay Services Engine
 
-[brief welcome and overview]
+The Overlay Services Engine enables dynamic tracking and management of UTXO-based systems that work on top of the BSV blockchain.
 
 ## Table of Contents
 
@@ -15,40 +15,188 @@ BSV BLOCKCHAIN | Overlay Services Engine
 
 ## Objective
 
-[overview of objectives]
+- Enable a general-purpose system for tracking UTXOs
+- Let each service decide what UTXOs get into the system
+- Provide an efficient global storage engine for UTXO data
+- Let each lookup service dynamically respond to different types of queries
+- Let each lookup service have its own, specialized storage engine for its unique needs
 
 ## Getting Started
 
 ### Installation
 
-[installation guide]
+You'll usually want to wrap the Engine within an HTTP server. To get set up with Express, create a new project and install everything you'll need:
+
+```
+npm i express body-parser @bsv/sdk @bsv/overlay hello-services knex
+```
 
 ### Basic Usage
 
-Here's a simple example of using the Overlay Services Engine to host a Hello World Network:
+In your server's main file, you can set everything up. Create a new Engine to run the overlay services you want, then expose some routes over HTTP. For example:
 
-```typescript
-// Example
+```js
+const express = require('express')
+const bodyparser = require('body-parser')
+const { Engine, KnexStorage, HelloTopicManager, HelloLookupService, HelloStorageEngine } = require('@bsv/overlay')
+const { WoChain } = require('@bsv/sdk')
+// Populate a Knexfile with your database credentials
+const knex = require('knex')(require('../knexfile.js'))
+const app = express()
+app.use(bodyparser.json({ limit: '1gb', type: 'application/json' }))
+
+const engine = new Engine(
+    {
+      hello: new HelloTopicManager(),
+    },
+    {
+      hello: new HelloLookupService({
+        storageEngine: new HelloStorageEngine({
+          knex
+        })
+      }),
+    },
+    new KnexStorageEngine({
+      knex
+    })
+  )
+
+// This allows the API to be used everywhere when CORS is enforced
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*')
+  res.header('Access-Control-Allow-Headers', '*')
+  res.header('Access-Control-Allow-Methods', '*')
+  res.header('Access-Control-Expose-Headers', '*')
+  res.header('Access-Control-Allow-Private-Network', 'true')
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200)
+  } else {
+    next()
+  }
+})
+
+// Serve a static documentstion site, if you have one.
+app.use(express.static('public'))
+
+// List hosted topic managers and lookup services
+app.get(`/listTopicManagers`, async (req, res) => {
+  try {
+    const result = await engine.listTopicManagers()
+    return res.status(200).json(result)
+  } catch (error) {
+    return res.status(400).json({
+      status: 'error',
+      code: error.code,
+      description: error.message
+    })
+  }
+})
+app.get(`/listLookupServiceProviders`, async (req, res) => {
+  try {
+    const result = await engine.listLookupServiceProviders()
+    return res.status(200).json(result)
+  } catch (error) {
+    return res.status(400).json({
+      status: 'error',
+      code: error.code,
+      description: error.message
+    })
+  }
+})
+
+// Host documentation for the services
+app.get(`/getDocumentationForTopicManager`, async (req, res) => {
+  try {
+    const result = await engine.getDocumentationForTopicManger(req.query.manager)
+    return res.status(200).json(result)
+  } catch (error) {
+    return res.status(400).json({
+      status: 'error',
+      code: error.code,
+      description: error.message
+    })
+  }
+})
+app.get(`/getDocumentationForLookupServiceProvider`, async (req, res) => {
+  try {
+    const result = await engine.getDocumentationForLookupServiceProvider(req.query.lookupServices)
+    return res.status(200).json(result)
+  } catch (error) {
+    return res.status(400).json({
+      status: 'error',
+      code: error.code,
+      description: error.message
+    })
+  }
+})
+
+// Submit transactions and facilitate lookup requests
+app.post(`/submit`, async (req, res) => {
+  try {
+    const result = await engine.submit(req.body)
+    return res.status(200).json(result)
+  } catch (error) {
+    return res.status(400).json({
+      status: 'error',
+      code: error.code,
+      description: error.message
+    })
+  }
+})
+app.post(`/lookup`, async (req, res) => {
+  try {
+    const result = await engine.lookup(req.body)
+    return res.status(200).json(result)
+  } catch (error) {
+    return res.status(400).json({
+      status: 'error',
+      code: error.code,
+      description: error.message
+    })
+  }
+})
+
+// 404, all other routes are not found.
+app.use((req, res) => {
+  console.log('404', req.url)
+  res.status(404).json({
+    status: 'error',
+    code: 'ERR_ROUTE_NOT_FOUND',
+    description: 'Route not found.'
+  })
+})
+
+// Start your Engines!
+  app.listen(8080, () => {
+    console.log('BSV Overlay Services Engine is listening on port', 8080)
+  })
 ```
 
-For a more detailed tutorial and advanced examples, check our [Documentation](#documentation).
+For more detailed tutorials and examples, check out the [full documentation](#documentation).
+
+The Overlay Services Engine is also richly documented with code-level annotations. This should show up well within editors like VSCode. 
+
+<!-- ## Documentation
+
+[links to conceptsexamples and internals] -->
 
 ## Features & Deliverables
 
-- deliverables
-
-## Documentation
-
-The Overlay Services Engine is richly documented with code-level annotations. This should show up well within editors like VSCode. For complete API docs, check out [the docs folder](./docs).
-
-[links to conceptsexamples and internals]
+- UTXO Tracking
+- History management and state tracking
+- Lookup Services
+- Storage engine abstractions
+- [WIP] Examples, HTTP wrapper and Docs
+- [WIP] Arc Proof Acquisition
+- [WIP] Distributed Overlay Availability Advertisements
+- [WIP] Federated Transaction Synchronization
 
 ## Contribution Guidelines
 
 We're always looking for contributors to help us improve the Engine. Whether it's bug reports, feature requests, or pull requests - all contributions are welcome.
 
 1. **Fork & Clone**: Fork this repository and clone it to your local machine.
-2. **Set Up**: Run `npm install` to install all dependencies.
+2. **Set Up**: Run `npm i` to install all dependencies.
 3. **Make Changes**: Create a new branch and make your changes.
 4. **Test**: Ensure all tests pass by running `npm test`.
 5. **Commit**: Commit your changes and push to your fork.

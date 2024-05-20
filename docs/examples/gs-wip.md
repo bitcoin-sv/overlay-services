@@ -15,20 +15,20 @@ Before you can use the engine, you must initialize it with the required componen
 
 ```ts
 import { Engine, KnexStorage } from "@bsv/overlay";
-import { ExampleTopicManager, ExampleLookupService } from 'example-overlay-services';
-import { ExampleChainTracker } from "example-bsv-chain-tracker";
+import { HelloTopicManager, HelloLookupService } from 'hello-services';
+import { WoChain } from "@bsv/sdk";
 
 // Initialize components
 const managers = {
-    "exampleTopic": new ExampleTopicManager()
+    "exampleTopic": new HelloTopicManager()
 };
 
 const lookupServices = {
-    "exampleLookup": new ExampleLookupService()
+    "exampleLookup": new HelloLookupService()
 };
 
 const storage = new KnexStorage();
-const chainTracker = new ExampleChainTracker();
+const chainTracker = new WoChain();
 
 // Create the engine instance
 const engine = new Engine(managers, lookupServices, storage, chainTracker);

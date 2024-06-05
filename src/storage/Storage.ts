@@ -13,7 +13,7 @@ interface AppliedTransaction {
 /**
  * Defines the Storage Engine interface used internally by the Overlay Services Engine.
  */
-export default interface Storage {
+export interface Storage {
   /**
      * Adds a new output to storage
      * @param utxo — The output to add

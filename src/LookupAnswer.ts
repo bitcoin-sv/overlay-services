@@ -3,12 +3,12 @@
  * It may comprise either an output list or a freeform response from the Lookup Service.
  */
 export type LookupAnswer = {
-    type: 'output-list'
-    outputs: Array<{
-        beef: number[]
-        outputIndex: number
-    }>
+  type: 'output-list'
+  outputs: Array<{
+    beef: number[]
+    outputIndex: number
+  }>
 } | {
-    type: 'freeform',
-    result: unknown
+  type: 'freeform',
+  result: unknown
 }

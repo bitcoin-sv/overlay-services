@@ -37,7 +37,7 @@ export class Engine {
    */
   async submit(taggedBEEF: TaggedBEEF): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
-      if (this.managers[t] !== undefined && this.managers[t] !== null) {
+      if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)
       }
     }

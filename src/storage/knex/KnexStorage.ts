@@ -2,7 +2,7 @@ import { Storage } from '../Storage.js'
 import { Knex } from 'knex'
 import type { Output } from '../../Output.js'
 
-export default class KnexStorage implements Storage {
+export class KnexStorage implements Storage {
   knex: Knex
 
   constructor(knex: Knex) {
@@ -11,9 +11,9 @@ export default class KnexStorage implements Storage {
 
   async findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean): Promise<Output | null> {
     const search: {
-      txid: string,
-      outputIndex: number,
-      topic?: string,
+      txid: string
+      outputIndex: number
+      topic?: string
       spent?: boolean
     } = {
       txid,

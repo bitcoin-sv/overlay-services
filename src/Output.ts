@@ -2,28 +2,28 @@
  * Represents an output to be tracked by the Overlay Services Engine
  */
 export type Output = {
-    /** TXID of the output */
+  /** TXID of the output */
+  txid: string
+  /** index of the output */
+  outputIndex: number
+  /** script of the output */
+  outputScript: number[]
+  /** number of satoshis in the output */
+  satoshis: number
+  /** topic to which the output belongs */
+  topic: string
+  /** Whether the output is spent */
+  spent: boolean
+  /** The transaction data for the output */
+  beef: number[]
+  /** Outputs consumed by the transaction associated with the output */
+  outputsConsumed: Array<{
     txid: string
-    /** index of the output */
     outputIndex: number
-    /** script of the output */
-    outputScript: number[]
-    /** number of satoshis in the output */
-    satoshis: number
-    /** topic to which the output belongs */
-    topic: string
-    /** Whether the output is spent */
-    spent: boolean
-    /** The transaction data for the output */
-    beef: number[]
-    /** Outputs consumed by the transaction associated with the output */
-    outputsConsumed: {
-        txid: string
-        outputIndex: number
-    }[]
-    /** Outputs consuming this output */
-    consumedBy: {
-        txid: string
-        outputIndex: number
-    }[]
+  }>
+  /** Outputs consuming this output */
+  consumedBy: Array<{
+    txid: string
+    outputIndex: number
+  }>
 }

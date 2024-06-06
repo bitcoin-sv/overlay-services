@@ -9,6 +9,6 @@ export type LookupAnswer = {
     outputIndex: number
   }>
 } | {
-  type: 'freeform',
+  type: 'freeform'
   result: unknown
 }

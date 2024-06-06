@@ -13,7 +13,7 @@ import { Transaction, ChainTracker } from '@bsv/sdk'
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
  */
-export default class Engine {
+export class Engine {
   /**
    * Creates a new Overlay Services Engine
    * @param {[key: string]: TopicManager} managers - manages topic admittance

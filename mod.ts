@@ -1,5 +1,5 @@
 // Fundamentals
-export * as Engine from "./src/Engine.js"
+export { Engine } from "./src/Engine.js"
 export type { LookupService } from "./src/LookupService.js"
 export type { TopicManager } from "./src/TopicManager.js"
 

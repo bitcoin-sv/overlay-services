@@ -8,7 +8,7 @@ import { STEAK } from './STEAK.js'
 import { LookupQuestion } from './LookupQuestion.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
-import { Transaction, ChainTracker, MerklePath } from '@bsv/sdk'
+import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -20,14 +20,14 @@ export class Engine {
    * @param {[key: string]: LookupService} lookupServices - manages UTXO lookups
    * @param {Storage} storage - for interacting with internally-managed persistent data
    * @param {ChainTracker} chainTracker - Verifies SPV data associated with transactions
-   * @param {ProofNotifier[]} [proofNotifiers] - proof notifier services coming soon!
+   * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    */
   constructor(
     public managers: { [key: string]: TopicManager },
     public lookupServices: { [key: string]: LookupService },
     public storage: Storage,
-    public chainTracker: ChainTracker
-    // public proofNotifiers: ProofNotifier[]
+    public chainTracker: ChainTracker,
+    public broadcaster?: Broadcaster
   ) { }
 
   /**
@@ -203,8 +203,11 @@ export class Engine {
       steak[topic] = admissableOutputs
     }
 
+    // Broadcast the transaction
+    if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
+      await this.broadcaster.broadcast(tx)
+    }
     return steak
-    // TODO subscribe to get notified by proof notifiers when proof is found for TX if not already present, so the tree can be chopped down
     // TODO propagate transaction to other nodes according to synchronization agreements
   }
 

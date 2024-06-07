@@ -389,7 +389,7 @@ export class Engine {
   }
 
   /**
-   * Recursively updates the Merkle proof for the given output and its consuming outputs.
+   * Recursively updates the Merkle proof for the given output and its consumedBy outputs.
    * If the output matches the source transaction ID, its Merkle proof is updated directly.
    * Otherwise, the Merkle proof is updated for the corresponding input in each transaction.
    *
@@ -447,7 +447,7 @@ export class Engine {
   async pruneUTXODeep(txid: string, proof: MerklePath): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid)
     for (const output of outputs) {
-      await this.updateMerkleProof(output, proof, txid)
+      await this.updateMerkleProof(output, proof, [])
     }
   }
 

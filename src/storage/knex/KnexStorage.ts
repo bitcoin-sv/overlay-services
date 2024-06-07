@@ -24,7 +24,7 @@ export class KnexStorage implements Storage {
     const [output] = await this.knex('outputs').where(search).select(
       'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
     )
-    if (output !== undefined && output !== null) {
+    if (output === undefined || output === null) {
       return null
     }
     return {
@@ -67,7 +67,7 @@ export class KnexStorage implements Storage {
       outputScript: Buffer.from(output.outputScript),
       topic: output.topic,
       satoshis: Number(output.satoshis),
-      beef: [...output.beef],
+      beef: Buffer.from(new Uint8Array(output.beef)),
       outputsConsumed: JSON.stringify(output.outputsConsumed),
       consumedBy: JSON.stringify(output.consumedBy),
       spent: output.spent

@@ -24,8 +24,25 @@ export class KnexStorage implements Storage {
     const [output] = await this.knex('outputs').where(search).select(
       'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
     )
-    if (!output) {
+    if (output !== undefined && output !== null) {
       return null
+    }
+    return {
+      ...output,
+      outputScript: [...output.outputScript],
+      beef: [...output.beef],
+      spent: Boolean(output.spent),
+      outputsConsumed: JSON.parse(output.outputsConsumed),
+      consumedBy: JSON.parse(output.consumedBy)
+    }
+  }
+
+  async findOutputsForTransaction(txid: string): Promise<Output[]> {
+    const [output] = await this.knex('outputs').where({ txid }).select(
+      'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
+    )
+    if (output === undefined || output === null) {
+      return []
     }
     return {
       ...output,
@@ -43,7 +60,7 @@ export class KnexStorage implements Storage {
     }).del()
   }
 
-  async insertOutput(output: Output) {
+  async insertOutput(output: Output): Promise<void> {
     await this.knex('outputs').insert({
       txid: output.txid,
       outputIndex: Number(output.outputIndex),
@@ -65,7 +82,7 @@ export class KnexStorage implements Storage {
     }).update('spent', true)
   }
 
-  async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: { txid: string, outputIndex: number }[]) {
+  async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: Array<{ txid: string, outputIndex: number }>): Promise<void> {
     await this.knex('outputs').where({
       txid,
       outputIndex,
@@ -73,7 +90,15 @@ export class KnexStorage implements Storage {
     }).update('consumedBy', consumedBy)
   }
 
-  async insertAppliedTransaction(tx: { txid: string, topic: string }) {
+  async updateOutputBeef(txid: string, outputIndex: number, topic: string, beef: number[]): Promise<void> {
+    await this.knex('outputs').where({
+      txid,
+      outputIndex,
+      topic
+    }).update('beef', beef)
+  }
+
+  async insertAppliedTransaction(tx: { txid: string, topic: string }): Promise<void> {
     await this.knex('applied_transactions').insert({
       txid: tx.txid,
       topic: tx.topic

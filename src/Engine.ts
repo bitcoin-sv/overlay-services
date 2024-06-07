@@ -8,7 +8,7 @@ import { STEAK } from './STEAK.js'
 import { LookupQuestion } from './LookupQuestion.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
-import { Transaction, ChainTracker } from '@bsv/sdk'
+import { Transaction, ChainTracker, MerklePath } from '@bsv/sdk'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -385,6 +385,69 @@ export class Engine {
       })
     } catch (error) {
       throw new Error(`Failed to delete all stale outputs: ${error as string}`)
+    }
+  }
+
+  /**
+   * Recursively updates the Merkle proof for the given output and its consuming outputs.
+   * If the output matches the source transaction ID, its Merkle proof is updated directly.
+   * Otherwise, the Merkle proof is updated for the corresponding input in each transaction.
+   *
+   * @param output - The output to update with the new Merkle proof.
+   * @param proof - The Merkle proof to be applied to the output or its inputs.
+   * @param sourceTxid - The transaction ID of the source output whose Merkle proof is being updated.
+   */
+  private async updateMerkleProof(output: Output, proof: MerklePath, recursionPath: Array<{ txid: string, outputIndex: number }>): Promise<void> {
+    // Add current output to recursionPath
+    recursionPath.push({ txid: output.txid, outputIndex: output.outputIndex })
+
+    const tx = Transaction.fromBEEF(output.beef)
+
+    // Handle the base case
+    if (output.txid === recursionPath[0].txid) {
+      tx.merklePath = proof
+    } else {
+      // Traverse inputs to update the Merkle proof according to the recursionPath
+      let currentInputs = tx.inputs
+
+      for (let i = recursionPath.length - 1; i >= 0; i--) {
+        const crumb = recursionPath[i]
+
+        for (const input of currentInputs) {
+          if (input.sourceTXID === crumb.txid && input.sourceOutputIndex === crumb.outputIndex) {
+            if (i === 0 && input.sourceTransaction !== undefined) {
+              input.sourceTransaction.merklePath = proof
+            } else if (input.sourceTransaction !== undefined) {
+              currentInputs = input.sourceTransaction.inputs
+              break
+            }
+          }
+        }
+      }
+    }
+
+    // Update the output's BEEF in the storage DB
+    await this.storage.updateOutputBeef(output.txid, output.outputIndex, output.topic, tx.toBEEF())
+
+    // Recursively update the consumedBy outputs
+    for (const consumingOutput of output.consumedBy) {
+      const consumedOutputs = await this.storage.findOutputsForTransaction(consumingOutput.txid)
+      for (const consumedOutput of consumedOutputs) {
+        await this.updateMerkleProof(consumedOutput, proof, [])
+      }
+    }
+  }
+
+  /**
+   * Recursively prune UTXOs when an incoming Merkle Proof is received.
+   *
+   * @param txid - Transaction ID of the associated outputs to prune.
+   * @param proof - Merkle proof containing the Merkle path and other relevant data to verify the transaction.
+   */
+  async pruneUTXODeep(txid: string, proof: MerklePath): Promise<void> {
+    const outputs = await this.storage.findOutputsForTransaction(txid)
+    for (const output of outputs) {
+      await this.updateMerkleProof(output, proof, txid)
     }
   }
 

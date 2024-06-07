@@ -30,6 +30,12 @@ export interface Storage {
   findOutput: (txid: string, outputIndex: number, topic?: string, spent?: boolean) => Promise<Output | null>
 
   /**
+   * Finds outputs with a matching transaction ID from storage
+   * @param txid — TXID of the outputs to find
+   */
+  findOutputsForTransaction: (txid: string) => Promise<Output[]>
+
+  /**
    * Deletes an output from storage
    * @param txid — The TXID of the output to delete
    * @param outputIndex — The index of the output to delete
@@ -56,6 +62,15 @@ export interface Storage {
     txid: string
     outputIndex: number
   }>) => Promise<void>
+
+  /**
+   * Updates the beef data on an output
+   * @param txid — TXID of the output to update
+   * @param outputIndex — Index of the output to update
+   * @param topic — Topic in which the output should be updated
+   * @param beef - BEEF data to update
+   */
+  updateOutputBeef: (txid: string, outputIndex: number, topic: string, beef: number[]) => Promise<void>
 
   /**
    * Inserts record of the applied transaction

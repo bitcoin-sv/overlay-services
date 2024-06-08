@@ -447,7 +447,7 @@ export class Engine {
    * @param txid - Transaction ID of the associated outputs to prune.
    * @param proof - Merkle proof containing the Merkle path and other relevant data to verify the transaction.
    */
-  async pruneUTXODeep(txid: string, proof: MerklePath): Promise<void> {
+  async handleNewMerkleProof(txid: string, proof: MerklePath): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid)
     for (const output of outputs) {
       await this.updateMerkleProof(output, proof, [])

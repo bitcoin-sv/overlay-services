@@ -1,14 +1,14 @@
-import { TopicManager } from "./TopicManager.js"
-import { LookupService } from "./LookupService.js"
+import { TopicManager } from './TopicManager.js'
+import { LookupService } from './LookupService.js'
 import { Storage } from './storage/Storage.js'
-import type { AdmittanceInstructions } from "./AdmittanceInstructions.js"
+import type { AdmittanceInstructions } from './AdmittanceInstructions.js'
 import type { Output } from './Output.js'
-import { TaggedBEEF } from "./TaggedBEEF.js"
+import { TaggedBEEF } from './TaggedBEEF.js'
 import { STEAK } from './STEAK.js'
-import { LookupQuestion } from "./LookupQuestion.js"
-import { LookupAnswer } from "./LookupAnswer.js"
-import { LookupFormula } from "./LookupFormula.js"
-import { Transaction, ChainTracker } from '@bsv/sdk'
+import { LookupQuestion } from './LookupQuestion.js'
+import { LookupAnswer } from './LookupAnswer.js'
+import { LookupFormula } from './LookupFormula.js'
+import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -20,14 +20,14 @@ export class Engine {
    * @param {[key: string]: LookupService} lookupServices - manages UTXO lookups
    * @param {Storage} storage - for interacting with internally-managed persistent data
    * @param {ChainTracker} chainTracker - Verifies SPV data associated with transactions
-   * @param {ProofNotifier[]} [proofNotifiers] - proof notifier services coming soon!
+   * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    */
   constructor(
     public managers: { [key: string]: TopicManager },
     public lookupServices: { [key: string]: LookupService },
     public storage: Storage,
-    public chainTracker: ChainTracker
-    // public proofNotifiers: ProofNotifier[]
+    public chainTracker: ChainTracker,
+    public broadcaster?: Broadcaster
   ) { }
 
   /**
@@ -37,11 +37,13 @@ export class Engine {
    */
   async submit(taggedBEEF: TaggedBEEF): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
-      if (!this.managers[t]) throw new Error(`This server does not support this topic: ${t}`)
+      if (this.managers[t] === undefined || this.managers[t] === null) {
+        throw new Error(`This server does not support this topic: ${t}`)
+      }
     }
     // Validate the transaction SPV information
     const tx = Transaction.fromBEEF(taggedBEEF.beef)
-    const txid = tx.id('hex') as string
+    const txid = tx.id('hex')
     const txValid = await tx.verify(this.chainTracker)
     if (!txValid) throw new Error('Unable to verify SPV information.')
 
@@ -75,7 +77,7 @@ export class Engine {
           input.sourceOutputIndex,
           topic
         )
-        if (output) {
+        if (output !== undefined && output !== null) {
           previousCoins.push(i)
 
           // This output is now spent.
@@ -88,7 +90,7 @@ export class Engine {
           // Notify the lookup services about the spending of this output
           for (const l of Object.values(this.lookupServices)) {
             try {
-              if (l.outputSpent) {
+              if (l.outputSpent !== undefined && l.outputSpent !== null) {
                 await l.outputSpent(
                   output.txid,
                   output.outputIndex,
@@ -115,15 +117,15 @@ export class Engine {
       }
 
       // Keep track of which outputs to admit, mark as stale, or retain
-      let outputsToAdmit: number[] = admissableOutputs.outputsToAdmit
-      let staleCoins: {
+      const outputsToAdmit: number[] = admissableOutputs.outputsToAdmit
+      const staleCoins: Array<{
         txid: string
         outputIndex: number
-      }[] = []
-      let outputsConsumed: {
+      }> = []
+      const outputsConsumed: Array<{
         txid: string
         outputIndex: number
-      }[] = []
+      }> = []
 
       // Find which outputs should not be retained and mark them as stale
       // For each of the previous UTXOs, if the the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
@@ -146,13 +148,13 @@ export class Engine {
       // Remove stale outputs recursively
       for (const coin of staleCoins) {
         const output = await this.storage.findOutput(coin.txid, coin.outputIndex, topic)
-        if (output) {
+        if (output !== undefined && output !== null) {
           await this.deleteUTXODeep(output)
         }
       }
 
       // Handle admittance and notification of incoming UTXOs
-      const newUTXOs: { txid: string, outputIndex: number }[] = []
+      const newUTXOs: Array<{ txid: string, outputIndex: number }> = []
       for (const outputIndex of outputsToAdmit) {
         // Store the output
         await this.storage.insertOutput({
@@ -174,7 +176,7 @@ export class Engine {
         // Notify all the lookup services about the new UTXO
         for (const l of Object.values(this.lookupServices)) {
           try {
-            if (l.outputAdded) {
+            if (l.outputAdded !== undefined && l.outputAdded !== null) {
               await l.outputAdded(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)
             }
           } catch (_) { }
@@ -184,7 +186,7 @@ export class Engine {
       // Update each output consumed to know who consumed it
       for (const output of outputsConsumed) {
         const outputToUpdate = await this.storage.findOutput(output.txid, output.outputIndex, topic)
-        if (outputToUpdate) {
+        if (outputToUpdate !== undefined && outputToUpdate !== null) {
           const newConsumedBy = [...new Set([...newUTXOs, ...outputToUpdate.consumedBy])]
           // Note: only update if newConsumedBy !== new Set(JSON.parse(outputToUpdate.consumedBy)) ?
           await this.storage.updateConsumedBy(output.txid, output.outputIndex, topic, newConsumedBy)
@@ -201,8 +203,11 @@ export class Engine {
       steak[topic] = admissableOutputs
     }
 
+    // Broadcast the transaction
+    if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
+      await this.broadcaster.broadcast(tx)
+    }
     return steak
-    // TODO subscribe to get notified by proof notifiers when proof is found for TX if not already present, so the tree can be chopped down
     // TODO propagate transaction to other nodes according to synchronization agreements
   }
 
@@ -214,7 +219,7 @@ export class Engine {
   async lookup(lookupQuestion: LookupQuestion): Promise<LookupAnswer> {
     // Validate a lookup service for the provider is found
     const lookupService = this.lookupServices[lookupQuestion.service]
-    if (!lookupService) throw new Error(`Lookup service not found for provider: ${lookupQuestion.service}`)
+    if (lookupService === undefined || lookupService === null) throw new Error(`Lookup service not found for provider: ${lookupQuestion.service}`)
 
     let lookupResult = await lookupService.lookup(lookupQuestion)
     // Handle custom lookup service answers
@@ -223,7 +228,7 @@ export class Engine {
     }
     lookupResult = lookupResult as LookupFormula
 
-    const hydratedOutputs: { beef: number[], outputIndex: number }[] = []
+    const hydratedOutputs: Array<{ beef: number[], outputIndex: number }> = []
 
     for (const { txid, outputIndex, history } of lookupResult) {
       // Make sure this is an unspent output (UTXO)
@@ -233,11 +238,11 @@ export class Engine {
         undefined,
         false
       )
-      if (!UTXO) continue
+      if (UTXO === undefined || UTXO === null) continue
 
       // Get the history for this utxo and construct a BRC-8 Envelope
       const output = await this.getUTXOHistory(UTXO, history, 0)
-      if (output) {
+      if (output !== undefined && output !== null) {
         hydratedOutputs.push({
           beef: output.beef,
           outputIndex: output.outputIndex
@@ -251,18 +256,24 @@ export class Engine {
   }
 
   /**
-   * Traverse and return the history of a UTXO
-   * @param historySelector 
-   * @param currentDepth 
-   * @param output 
-   * @param txid 
-   * @param outputIndex 
-   * @param id 
-   * @returns {Promise<EnvelopeEvidenceApi>}
+   * Traverse and return the history of a UTXO.
+   *
+   * This method traverses the history of a given Unspent Transaction Output (UTXO) and returns
+   * its historical data based on the provided history selector and current depth.
+   *
+   * @param output - The UTXO to traverse the history for.
+   * @param historySelector - Optionally directs the history traversal:
+   *  - If a number, denotes how many previous spends (in terms of chain depth) to include.
+   *  - If a function, accepts a BEEF-formatted transaction, an output index, and the current depth as parameters,
+   *    returning a promise that resolves to a boolean indicating whether to include the output in the history.
+   * @param {number} [currentDepth=0] - The current depth of the traversal relative to the top-level UTXO.
+   *
+   * @returns {Promise<Output | undefined>} - A promise that resolves to the output history if found, or undefined if not.
    */
   async getUTXOHistory(
     output: Output,
-    historySelector?: ((beef: number[], outputIndex: number, currentDepth: number) => Promise<boolean>) | number, currentDepth = 0,
+    historySelector?: ((beef: number[], outputIndex: number, currentDepth: number) => Promise<boolean>) | number,
+    currentDepth = 0
   ): Promise<Output | undefined> {
     // If we have an output but no history selector, jsut return the output.
     if (typeof historySelector === 'undefined') {
@@ -279,35 +290,37 @@ export class Engine {
 
     if (shouldTraverseHistory === false) {
       return undefined
-    } else if (output && output.outputsConsumed.length === 0) {
+    } else if (output !== null && output !== undefined && output.outputsConsumed.length === 0) {
       return output
     }
 
     try {
       // Query the storage engine for UTXOs consumed by this UTXO
       // Only retrieve unique values in case outputs are doubly referenced
-      const outputsConsumed: { txid: string, outputIndex: number }[] = output.outputsConsumed
+      const outputsConsumed: Array<{ txid: string, outputIndex: number }> = output.outputsConsumed
 
       // Find the child outputs for each utxo consumed by the current output
-      const childHistories = await (await Promise.all(
+      const childHistories = (await Promise.all(
         outputsConsumed.map(async (outputIdentifier) => {
           const output = await this.storage.findOutput(outputIdentifier.txid, outputIdentifier.outputIndex)
 
           // Make sure an output was found
-          if (!output) {
+          if (output === undefined || output === null) {
             return undefined
           }
 
           // Find previousUTXO history
-          return this.getUTXOHistory(output, historySelector, currentDepth + 1)
+          return await this.getUTXOHistory(output, historySelector, currentDepth + 1)
         })
       )).filter(x => x !== undefined)
 
       const tx = Transaction.fromBEEF(output.beef)
       for (const input of childHistories) {
-        if (!input) continue
+        if (input === undefined || input === null) continue
         const inputIndex = tx.inputs.findIndex((input) => {
-          const sourceTXID = input.sourceTXID || input.sourceTransaction?.id('hex') as string
+          const sourceTXID = input.sourceTXID !== undefined && input.sourceTXID !== ''
+            ? input.sourceTXID
+            : input.sourceTransaction?.id('hex')
           return sourceTXID === output.txid && input.sourceOutputIndex === output.outputIndex
         })
         tx.inputs[inputIndex].sourceTransaction = Transaction.fromBEEF(input.beef)
@@ -327,13 +340,10 @@ export class Engine {
   }
 
   /**
-    * Delete a UTXO and all stale consumed inputs
-    * @param output 
-    * @param id 
-    * @param txid 
-    * @param outputIndex 
-    * @returns {Promise<void>}
-    */
+   * Delete a UTXO and all stale consumed inputs.
+   * @param output - The UTXO to be deleted.
+   * @returns {Promise<void>} - A promise that resolves when the deletion process is complete.
+   */
   private async deleteUTXODeep(output: Output): Promise<void> {
     try {
       // Delete the current output IFF there are no references to it
@@ -346,7 +356,7 @@ export class Engine {
             await l.outputDeleted?.(
               output.txid,
               output.outputIndex,
-              output.topic!
+              output.topic
             )
           } catch (_) { }
         }
@@ -362,7 +372,7 @@ export class Engine {
         const staleOutput = await this.storage.findOutput(outputIdentifier.txid, outputIdentifier.outputIndex, output.topic)
 
         // Make sure an output was found
-        if (!staleOutput) {
+        if (staleOutput === null || staleOutput === undefined) {
           return undefined
         }
 
@@ -377,7 +387,70 @@ export class Engine {
         return await this.deleteUTXODeep(staleOutput)
       })
     } catch (error) {
-      throw new Error(`Failed to delete all stale outputs: ${error}`)
+      throw new Error(`Failed to delete all stale outputs: ${error as string}`)
+    }
+  }
+
+  /**
+   * Recursively updates the Merkle proof for the given output and its consumedBy outputs.
+   * If the output matches the source transaction ID, its Merkle proof is updated directly.
+   * Otherwise, the Merkle proof is updated for the corresponding input in each transaction.
+   *
+   * @param output - The output to update with the new Merkle proof.
+   * @param proof - The Merkle proof to be applied to the output or its inputs.
+   * @param sourceTxid - The transaction ID of the source output whose Merkle proof is being updated.
+   */
+  private async updateMerkleProof(output: Output, proof: MerklePath, recursionPath: Array<{ txid: string, outputIndex: number }>): Promise<void> {
+    // Add current output to recursionPath
+    recursionPath.push({ txid: output.txid, outputIndex: output.outputIndex })
+
+    const tx = Transaction.fromBEEF(output.beef)
+
+    // Handle the base case
+    if (output.txid === recursionPath[0].txid) {
+      tx.merklePath = proof
+    } else {
+      // Traverse inputs to update the Merkle proof according to the recursionPath
+      let currentInputs = tx.inputs
+
+      for (let i = recursionPath.length - 1; i >= 0; i--) {
+        const crumb = recursionPath[i]
+
+        for (const input of currentInputs) {
+          if (input.sourceTXID === crumb.txid && input.sourceOutputIndex === crumb.outputIndex) {
+            if (i === 0 && input.sourceTransaction !== undefined) {
+              input.sourceTransaction.merklePath = proof
+            } else if (input.sourceTransaction !== undefined) {
+              currentInputs = input.sourceTransaction.inputs
+              break
+            }
+          }
+        }
+      }
+    }
+
+    // Update the output's BEEF in the storage DB
+    await this.storage.updateOutputBeef(output.txid, output.outputIndex, output.topic, tx.toBEEF())
+
+    // Recursively update the consumedBy outputs
+    for (const consumingOutput of output.consumedBy) {
+      const consumedOutputs = await this.storage.findOutputsForTransaction(consumingOutput.txid)
+      for (const consumedOutput of consumedOutputs) {
+        await this.updateMerkleProof(consumedOutput, proof, [])
+      }
+    }
+  }
+
+  /**
+   * Recursively prune UTXOs when an incoming Merkle Proof is received.
+   *
+   * @param txid - Transaction ID of the associated outputs to prune.
+   * @param proof - Merkle proof containing the Merkle path and other relevant data to verify the transaction.
+   */
+  async handleNewMerkleProof(txid: string, proof: MerklePath): Promise<void> {
+    const outputs = await this.storage.findOutputsForTransaction(txid)
+    for (const output of outputs) {
+      await this.updateMerkleProof(output, proof, [])
     }
   }
 
@@ -405,7 +478,8 @@ export class Engine {
    * @returns {Promise<string>} - the documentation for the topic manager
    */
   async getDocumentationForTopicManager(manager: any): Promise<string> {
-    return this.managers[manager].getDocumentation?.() || 'No documentation found!'
+    const documentation = await this.managers[manager]?.getDocumentation?.()
+    return documentation !== undefined ? documentation : 'No documentation found!'
   }
 
   /**
@@ -414,6 +488,7 @@ export class Engine {
    * @returns {Promise<string>} -  the documentation for the lookup service
    */
   async getDocumentationForLookupServiceProvider(provider: any): Promise<string> {
-    return this.lookupServices[provider].getDocumentation?.() || 'No documentation found!'
+    const documentation = await this.lookupServices[provider]?.getDocumentation?.()
+    return documentation !== undefined ? documentation : 'No documentation found!'
   }
 }

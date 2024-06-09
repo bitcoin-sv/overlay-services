@@ -1,8 +1,8 @@
-import Engine from '../Engine'
-import LookupService from '../LookupService'
-import TopicManager from '../TopicManager'
+import { Engine } from '../Engine'
+import { LookupService } from '../LookupService'
+import { TopicManager } from '../TopicManager'
 import { AdmittanceInstructions } from '../AdmittanceInstructions'
-import Storage from '../storage/Storage'
+import { Storage } from '../storage/Storage'
 import { Transaction } from '@bsv/sdk'
 import { Output } from '../Output'
 

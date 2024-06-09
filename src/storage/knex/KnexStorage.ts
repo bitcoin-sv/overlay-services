@@ -2,7 +2,7 @@ import { Storage } from '../Storage.js'
 import { Knex } from 'knex'
 import type { Output } from '../../Output.js'
 
-export default class KnexStorage implements Storage {
+export class KnexStorage implements Storage {
   knex: Knex
 
   constructor(knex: Knex) {
@@ -11,9 +11,9 @@ export default class KnexStorage implements Storage {
 
   async findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean): Promise<Output | null> {
     const search: {
-      txid: string,
-      outputIndex: number,
-      topic?: string,
+      txid: string
+      outputIndex: number
+      topic?: string
       spent?: boolean
     } = {
       txid,
@@ -24,8 +24,25 @@ export default class KnexStorage implements Storage {
     const [output] = await this.knex('outputs').where(search).select(
       'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
     )
-    if (!output) {
+    if (output === undefined || output === null) {
       return null
+    }
+    return {
+      ...output,
+      outputScript: [...output.outputScript],
+      beef: [...output.beef],
+      spent: Boolean(output.spent),
+      outputsConsumed: JSON.parse(output.outputsConsumed),
+      consumedBy: JSON.parse(output.consumedBy)
+    }
+  }
+
+  async findOutputsForTransaction(txid: string): Promise<Output[]> {
+    const [output] = await this.knex('outputs').where({ txid }).select(
+      'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
+    )
+    if (output === undefined || output === null) {
+      return []
     }
     return {
       ...output,
@@ -43,14 +60,14 @@ export default class KnexStorage implements Storage {
     }).del()
   }
 
-  async insertOutput(output: Output) {
+  async insertOutput(output: Output): Promise<void> {
     await this.knex('outputs').insert({
       txid: output.txid,
       outputIndex: Number(output.outputIndex),
       outputScript: Buffer.from(output.outputScript),
       topic: output.topic,
       satoshis: Number(output.satoshis),
-      beef: [...output.beef],
+      beef: Buffer.from(new Uint8Array(output.beef)),
       outputsConsumed: JSON.stringify(output.outputsConsumed),
       consumedBy: JSON.stringify(output.consumedBy),
       spent: output.spent
@@ -65,7 +82,7 @@ export default class KnexStorage implements Storage {
     }).update('spent', true)
   }
 
-  async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: { txid: string, outputIndex: number }[]) {
+  async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: Array<{ txid: string, outputIndex: number }>): Promise<void> {
     await this.knex('outputs').where({
       txid,
       outputIndex,
@@ -73,7 +90,15 @@ export default class KnexStorage implements Storage {
     }).update('consumedBy', consumedBy)
   }
 
-  async insertAppliedTransaction(tx: { txid: string, topic: string }) {
+  async updateOutputBeef(txid: string, outputIndex: number, topic: string, beef: number[]): Promise<void> {
+    await this.knex('outputs').where({
+      txid,
+      outputIndex,
+      topic
+    }).update('beef', beef)
+  }
+
+  async insertAppliedTransaction(tx: { txid: string, topic: string }): Promise<void> {
     await this.knex('applied_transactions').insert({
       txid: tx.txid,
       topic: tx.topic

@@ -1,4 +1,4 @@
-import { AdmittanceInstructions } from "./AdmittanceInstructions.js"
+import { AdmittanceInstructions } from './AdmittanceInstructions.js'
 
 /**
  * Submitted Transaction Execution AcKnowledgment

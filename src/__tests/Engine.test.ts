@@ -1,8 +1,8 @@
-import Engine from '../Engine'
-import LookupService from '../LookupService'
-import TopicManager from '../TopicManager'
+import { Engine } from '../Engine'
+import { LookupService } from '../LookupService'
+import { TopicManager } from '../TopicManager'
 import { AdmittanceInstructions } from '../AdmittanceInstructions'
-import Storage from '../storage/Storage'
+import { Storage } from '../storage/Storage'
 import { Transaction } from '@bsv/sdk'
 import { Output } from '../Output'
 
@@ -56,8 +56,10 @@ describe('BSV Overlay Services Engine', () => {
       insertAppliedTransaction: jest.fn(),
       insertOutput: jest.fn(),
       findOutput: jest.fn(async () => null),
+      findOutputsForTransaction: jest.fn(async () => []),
       markUTXOAsSpent: jest.fn(),
       updateConsumedBy: jest.fn(),
+      updateOutputBeef: jest.fn(),
       deleteOutput: jest.fn()
     }
   })

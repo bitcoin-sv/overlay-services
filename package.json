@@ -1,6 +1,6 @@
 {
   "name": "@bsv/overlay",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha.2",
   "type": "module",
   "description": "BSV Blockchain Overlay Services Engine",
   "main": "dist/cjs/mod.js",

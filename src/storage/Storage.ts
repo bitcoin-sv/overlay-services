@@ -3,7 +3,7 @@ import type { Output } from '../Output.js'
 /**
  * Represents a transaction that has been applied to a topic.
  */
-interface AppliedTransaction {
+export interface AppliedTransaction {
   /** TXID of the applied transaction */
   txid: string
   /** Output index of the applied transaction */

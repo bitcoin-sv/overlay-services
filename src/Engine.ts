@@ -9,6 +9,9 @@ import { LookupQuestion } from './LookupQuestion.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
+import { Advertiser } from './Advertiser.js'
+import { SHIPAdvertisement } from './SHIPAdvertisement.js'
+import { SLAPAdvertisement } from './SLAPAdvertisement.js'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -20,14 +23,18 @@ export class Engine {
    * @param {[key: string]: LookupService} lookupServices - manages UTXO lookups
    * @param {Storage} storage - for interacting with internally-managed persistent data
    * @param {ChainTracker} chainTracker - Verifies SPV data associated with transactions
+   * @param {string} hostingURL
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
+   * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    */
   constructor(
     public managers: { [key: string]: TopicManager },
     public lookupServices: { [key: string]: LookupService },
     public storage: Storage,
     public chainTracker: ChainTracker,
-    public broadcaster?: Broadcaster
+    public hostingURL: string,
+    public broadcaster?: Broadcaster,
+    public advertiser?: Advertiser
   ) { }
 
   /**
@@ -207,8 +214,76 @@ export class Engine {
     if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
       await this.broadcaster.broadcast(tx)
     }
+
+    // Propagate transaction to other nodes according to synchronization agreements
+    // 1. Find nodes that host the topics associated with admissable outputs
+    // We want to figure out which topics we actually care about (because their associated outputs were admitted)
+    // AND if the topic was not admitted we want to remove it from the list of topics we care about.
+    const topicsWeCareAbout = taggedBEEF.topics.filter(topic =>
+      steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0
+    )
+
+    if (topicsWeCareAbout.length > 0 && this.advertiser !== undefined) {
+      // Find all SHIP advertisements for the topics we care about
+      const topicToDomainsMap = new Map<string, Set<string>>()
+      for (const topic of topicsWeCareAbout) {
+        try {
+          // Handle custom lookup service answers
+          const lookupAnswer = await this.lookup({
+            service: 'ls_ship',
+            query: {
+              topic
+            }
+          })
+
+          if (lookupAnswer.type === 'output-list') {
+            const shipAdvertisements: SHIPAdvertisement[] = []
+            lookupAnswer.outputs.forEach(output => {
+              // Parse out the advertisements using the provided parser
+              const tx = Transaction.fromBEEF(output.beef)
+              shipAdvertisements.push(this.advertiser?.parseAdvertisement(tx.outputs[output.outputIndex].lockingScript) as SHIPAdvertisement)
+            })
+            if (shipAdvertisements.length > 0) {
+              shipAdvertisements.forEach((advertisement: SHIPAdvertisement) => {
+                if (!topicToDomainsMap.has(topic)) {
+                  topicToDomainsMap.set(topic, new Set<string>())
+                }
+                topicToDomainsMap.get(topic)?.add(advertisement.domainName)
+              })
+            }
+          }
+        } catch (error) {
+          console.error(`Error looking up topic ${String(topic)}:`, error)
+        }
+      }
+
+      const broadcastPromises: Array<Promise<Response>> = []
+
+      // Note: Is this the role of the specific advertiser?
+      for (const domains of topicToDomainsMap.values()) {
+        const domainsToBroadcast = Array.from(domains).filter(domain => domain !== this.hostingURL)
+        domainsToBroadcast.forEach(domain => {
+          const promise = fetch(`${String(domain)}/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'X-Topics': JSON.stringify(taggedBEEF.topics)
+            },
+            body: new Uint8Array(taggedBEEF.beef)
+          })
+
+          broadcastPromises.push(promise)
+        })
+      }
+
+      try {
+        await Promise.all(broadcastPromises)
+      } catch (error) {
+        console.error('Error during broadcasting:', error)
+      }
+    }
+
     return steak
-    // TODO propagate transaction to other nodes according to synchronization agreements
   }
 
   /**
@@ -252,6 +327,81 @@ export class Engine {
     return {
       type: 'output-list',
       outputs: hydratedOutputs
+    }
+  }
+
+  /**
+   * Ensures alignment between the current SHIP/SLAP advertisements and the 
+   * configured Topic Managers and Lookup Services in the engine.
+   *
+   * This method performs the following actions:
+   * 1. Retrieves the current configuration of topics and services.
+   * 2. Fetches the existing SHIP advertisements for each configured topic.
+   * 3. Fetches the existing SLAP advertisements for each configured service.
+   * 4. Compares the current configuration with the fetched advertisements to determine which advertisements
+   *    need to be created or revoked.
+   * 5. Creates new SHIP/SLAP advertisements if they do not exist for the configured topics/services.
+   * 6. Revokes existing SHIP/SLAP advertisements if they are no longer required based on the current configuration.
+   *
+   * The function uses the `Advertiser` methods to create or revoke advertisements and ensures the updates are
+   * submitted to the SHIP/SLAP overlay networks using the engine's `submit()` method.
+   *
+   * @throws Will throw an error if there are issues during the advertisement synchronization process.
+   * @returns {Promise<void>} A promise that resolves when the synchronization process is complete.
+   */
+  async syncAdvertisements(): Promise<void> {
+    if (this.advertiser === undefined) {
+      return
+    }
+    // Step 1: Retrieve Current Configuration
+    const configuredTopics = Object.keys(this.managers)
+    const configuredServices = Object.keys(this.lookupServices)
+
+    // Step 2: Fetch Existing Advertisements for each topic and service
+    const currentSHIPAdvertisements: SHIPAdvertisement[] = []
+    for (const topic of configuredTopics) {
+      const ads = await this.advertiser.findAllSHIPAdvertisements(topic)
+      currentSHIPAdvertisements.push(...ads)
+    }
+
+    const currentSLAPAdvertisements: SLAPAdvertisement[] = []
+    for (const service of configuredServices) {
+      const ads = await this.advertiser.findAllSLAPAdvertisements(service)
+      currentSLAPAdvertisements.push(...ads)
+    }
+
+    // Step 3: Compare and Determine Actions
+    const requiredSHIPAdvertisements = new Set(configuredTopics)
+    const requiredSLAPAdvertisements = new Set(configuredServices)
+
+    const existingSHIPTopics = new Set(currentSHIPAdvertisements.map(ad => ad.topicName))
+    const existingSLAPServices = new Set(currentSLAPAdvertisements.map(ad => ad.serviceName))
+
+    const shipToCreate = Array.from(requiredSHIPAdvertisements).filter(topic => !existingSHIPTopics.has(topic))
+    const shipToRevoke = currentSHIPAdvertisements.filter(ad => !requiredSHIPAdvertisements.has(ad.topicName))
+
+    const slapToCreate = Array.from(requiredSLAPAdvertisements).filter(service => !existingSLAPServices.has(service))
+    const slapToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.serviceName))
+
+    // Step 4: Update Advertisements
+    for (const topic of shipToCreate) {
+      const taggedBEEF = await this.advertiser.createSHIPAdvertisement(topic)
+      await this.submit(taggedBEEF)
+    }
+
+    for (const ad of shipToRevoke) {
+      const taggedBEEF = await this.advertiser.revokeAdvertisement(ad)
+      await this.submit(taggedBEEF)
+    }
+
+    for (const service of slapToCreate) {
+      const taggedBEEF = await this.advertiser.createSLAPAdvertisement(service)
+      await this.submit(taggedBEEF)
+    }
+
+    for (const ad of slapToRevoke) {
+      const taggedBEEF = await this.advertiser.revokeAdvertisement(ad)
+      await this.submit(taggedBEEF)
     }
   }
 

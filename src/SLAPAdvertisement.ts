@@ -1,8 +1,8 @@
 export interface SLAPAdvertisement {
   protocol: 'SLAP'
   identityKey: string
-  domainName: string
-  serviceName: string
+  domain: string
+  service: string
   beef?: number[]
   outputIndex?: number
 }

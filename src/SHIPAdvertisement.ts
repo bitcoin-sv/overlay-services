@@ -1,8 +1,8 @@
 export interface SHIPAdvertisement {
   protocol: 'SHIP'
   identityKey: string
-  domainName: string
-  topicName: string
+  domain: string
+  topic: string
   beef?: number[]
   outputIndex?: number
 }

@@ -215,18 +215,23 @@ export class Engine {
       await this.broadcaster.broadcast(tx)
     }
 
+    // If we don't have an advertiser, just return the steak
+    if (this.advertiser === undefined) {
+      return steak
+    }
+
     // Propagate transaction to other nodes according to synchronization agreements
     // 1. Find nodes that host the topics associated with admissable outputs
     // We want to figure out which topics we actually care about (because their associated outputs were admitted)
     // AND if the topic was not admitted we want to remove it from the list of topics we care about.
-    const topicsWeCareAbout = taggedBEEF.topics.filter(topic =>
+    const relevantTopics = taggedBEEF.topics.filter(topic =>
       steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0
     )
 
-    if (topicsWeCareAbout.length > 0 && this.advertiser !== undefined) {
+    if (relevantTopics.length > 0) {
       // Find all SHIP advertisements for the topics we care about
-      const topicToDomainsMap = new Map<string, Set<string>>()
-      for (const topic of topicsWeCareAbout) {
+      const domainToTopicsMap = new Map<string, Set<string>>()
+      for (const topic of relevantTopics) {
         try {
           // Handle custom lookup service answers
           const lookupAnswer = await this.lookup({
@@ -236,19 +241,27 @@ export class Engine {
             }
           })
 
+          // Lookup will currently always return type output-list
           if (lookupAnswer.type === 'output-list') {
             const shipAdvertisements: SHIPAdvertisement[] = []
             lookupAnswer.outputs.forEach(output => {
-              // Parse out the advertisements using the provided parser
-              const tx = Transaction.fromBEEF(output.beef)
-              shipAdvertisements.push(this.advertiser?.parseAdvertisement(tx.outputs[output.outputIndex].lockingScript) as SHIPAdvertisement)
+              try {
+                // Parse out the advertisements using the provided parser
+                const tx = Transaction.fromBEEF(output.beef)
+                const advertisement = this.advertiser?.parseAdvertisement(tx.outputs[output.outputIndex].lockingScript)
+                if (advertisement !== undefined && advertisement !== null && advertisement.protocol === 'SHIP') {
+                  shipAdvertisements.push(advertisement)
+                }
+              } catch (error) {
+                console.error('Failed to parse advertisement output:', error)
+              }
             })
             if (shipAdvertisements.length > 0) {
               shipAdvertisements.forEach((advertisement: SHIPAdvertisement) => {
-                if (!topicToDomainsMap.has(topic)) {
-                  topicToDomainsMap.set(topic, new Set<string>())
+                if (!domainToTopicsMap.has(advertisement.domainName)) {
+                  domainToTopicsMap.set(advertisement.domainName, new Set<string>())
                 }
-                topicToDomainsMap.get(topic)?.add(advertisement.domainName)
+                domainToTopicsMap.get(advertisement.domainName)?.add(topic)
               })
             }
           }
@@ -259,21 +272,19 @@ export class Engine {
 
       const broadcastPromises: Array<Promise<Response>> = []
 
-      // Note: Is this the role of the specific advertiser?
-      for (const domains of topicToDomainsMap.values()) {
-        const domainsToBroadcast = Array.from(domains).filter(domain => domain !== this.hostingURL)
-        domainsToBroadcast.forEach(domain => {
+      // Note: We are depending on window.fetch, this may not be ideal for the long term.
+      for (const [domain, topics] of domainToTopicsMap.entries()) {
+        if (domain !== this.hostingURL) {
           const promise = fetch(`${String(domain)}/submit`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
-              'X-Topics': JSON.stringify(taggedBEEF.topics)
+              'X-Topics': JSON.stringify(Array.from(topics))
             },
             body: new Uint8Array(taggedBEEF.beef)
           })
-
           broadcastPromises.push(promise)
-        })
+        }
       }
 
       try {
@@ -389,13 +400,13 @@ export class Engine {
       await this.submit(taggedBEEF)
     }
 
-    for (const ad of shipToRevoke) {
-      const taggedBEEF = await this.advertiser.revokeAdvertisement(ad)
+    for (const service of slapToCreate) {
+      const taggedBEEF = await this.advertiser.createSLAPAdvertisement(service)
       await this.submit(taggedBEEF)
     }
 
-    for (const service of slapToCreate) {
-      const taggedBEEF = await this.advertiser.createSLAPAdvertisement(service)
+    for (const ad of shipToRevoke) {
+      const taggedBEEF = await this.advertiser.revokeAdvertisement(ad)
       await this.submit(taggedBEEF)
     }
 

@@ -3,6 +3,6 @@ export interface SHIPAdvertisement {
   identityKey: string
   domainName: string
   topicName: string
-  beef: number[]
-  outputIndex: number
+  beef?: number[]
+  outputIndex?: number
 }

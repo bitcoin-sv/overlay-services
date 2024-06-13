@@ -44,9 +44,9 @@ export interface Advertiser {
   revokeAdvertisement: (advertisement: SHIPAdvertisement | SLAPAdvertisement) => Promise<TaggedBEEF>
 
   /**
-   * Parse out an advertisement
-   * @param outputScript
-   * @returns
+   * Parses an output script to extract an advertisement.
+   * @param outputScript - The script of the output to be parsed.
+   * @returns The parsed advertisement as a SHIPAdvertisement or SLAPAdvertisement, or null if the advertisement is invalid or cannot be parsed.
    */
   parseAdvertisement: (outputScript: Script) => SHIPAdvertisement | SLAPAdvertisement | null
 }

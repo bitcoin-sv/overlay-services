@@ -258,10 +258,10 @@ export class Engine {
             })
             if (shipAdvertisements.length > 0) {
               shipAdvertisements.forEach((advertisement: SHIPAdvertisement) => {
-                if (!domainToTopicsMap.has(advertisement.domainName)) {
-                  domainToTopicsMap.set(advertisement.domainName, new Set<string>())
+                if (!domainToTopicsMap.has(advertisement.domain)) {
+                  domainToTopicsMap.set(advertisement.domain, new Set<string>())
                 }
-                domainToTopicsMap.get(advertisement.domainName)?.add(topic)
+                domainToTopicsMap.get(advertisement.domain)?.add(topic)
               })
             }
           }
@@ -385,14 +385,14 @@ export class Engine {
     const requiredSHIPAdvertisements = new Set(configuredTopics)
     const requiredSLAPAdvertisements = new Set(configuredServices)
 
-    const existingSHIPTopics = new Set(currentSHIPAdvertisements.map(ad => ad.topicName))
-    const existingSLAPServices = new Set(currentSLAPAdvertisements.map(ad => ad.serviceName))
+    const existingSHIPTopics = new Set(currentSHIPAdvertisements.map(ad => ad.topic))
+    const existingSLAPServices = new Set(currentSLAPAdvertisements.map(ad => ad.service))
 
     const shipToCreate = Array.from(requiredSHIPAdvertisements).filter(topic => !existingSHIPTopics.has(topic))
-    const shipToRevoke = currentSHIPAdvertisements.filter(ad => !requiredSHIPAdvertisements.has(ad.topicName))
+    const shipToRevoke = currentSHIPAdvertisements.filter(ad => !requiredSHIPAdvertisements.has(ad.topic))
 
     const slapToCreate = Array.from(requiredSLAPAdvertisements).filter(service => !existingSLAPServices.has(service))
-    const slapToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.serviceName))
+    const slapToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.service))
 
     // Step 4: Update Advertisements
     for (const topic of shipToCreate) {

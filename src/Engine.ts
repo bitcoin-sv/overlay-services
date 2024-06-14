@@ -11,7 +11,6 @@ import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
-import { SLAPAdvertisement } from './SLAPAdvertisement.js'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -26,6 +25,8 @@ export class Engine {
    * @param {string} hostingURL
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
+   * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
+   * @param {string} slapTrackers - SAP domains we know to bootstrap the system
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -33,6 +34,8 @@ export class Engine {
     public storage: Storage,
     public chainTracker: ChainTracker,
     public hostingURL: string,
+    public shipTrackers?: string[],
+    public slapTrackers?: string[],
     public broadcaster?: Broadcaster,
     public advertiser?: Advertiser
   ) { }
@@ -271,6 +274,24 @@ export class Engine {
       }
 
       const broadcastPromises: Array<Promise<Response>> = []
+
+      // Make sure we gossip to the shipTrackers we know about.
+      if (this.shipTrackers !== undefined && this.shipTrackers.length !== 0 && relevantTopics.includes('tm_ship')) {
+        this.shipTrackers.forEach(tracker => {
+          if (domainToTopicsMap.get(tracker) !== undefined) {
+            domainToTopicsMap.set(tracker, new Set<string>('tm_ship'))
+          }
+        })
+      }
+
+      // Make sure we gossip to the slapTrackers we know about.
+      if (this.slapTrackers !== undefined && this.slapTrackers.length !== 0 && relevantTopics.includes('tm_slap')) {
+        this.slapTrackers.forEach(tracker => {
+          if (domainToTopicsMap.get(tracker) !== undefined) {
+            domainToTopicsMap.set(tracker, new Set<string>('tm_slap'))
+          }
+        })
+      }
 
       // Note: We are depending on window.fetch, this may not be ideal for the long term.
       for (const [domain, topics] of domainToTopicsMap.entries()) {

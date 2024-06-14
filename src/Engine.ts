@@ -364,22 +364,15 @@ export class Engine {
     if (this.advertiser === undefined) {
       return
     }
+    const advertiser = this.advertiser
+
     // Step 1: Retrieve Current Configuration
     const configuredTopics = Object.keys(this.managers)
     const configuredServices = Object.keys(this.lookupServices)
 
-    // Step 2: Fetch Existing Advertisements for each topic and service
-    const currentSHIPAdvertisements: SHIPAdvertisement[] = []
-    for (const topic of configuredTopics) {
-      const ads = await this.advertiser.findAllSHIPAdvertisements(topic)
-      currentSHIPAdvertisements.push(...ads)
-    }
-
-    const currentSLAPAdvertisements: SLAPAdvertisement[] = []
-    for (const service of configuredServices) {
-      const ads = await this.advertiser.findAllSLAPAdvertisements(service)
-      currentSLAPAdvertisements.push(...ads)
-    }
+    // Step 2: Fetch Existing Advertisements
+    const currentSHIPAdvertisements = await advertiser.findAllSHIPAdvertisements()
+    const currentSLAPAdvertisements = await advertiser.findAllSLAPAdvertisements()
 
     // Step 3: Compare and Determine Actions
     const requiredSHIPAdvertisements = new Set(configuredTopics)
@@ -394,26 +387,41 @@ export class Engine {
     const slapToCreate = Array.from(requiredSLAPAdvertisements).filter(service => !existingSLAPServices.has(service))
     const slapToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.service))
 
-    // Step 4: Update Advertisements
-    for (const topic of shipToCreate) {
-      const taggedBEEF = await this.advertiser.createSHIPAdvertisement(topic)
-      await this.submit(taggedBEEF)
-    }
-
-    for (const service of slapToCreate) {
-      const taggedBEEF = await this.advertiser.createSLAPAdvertisement(service)
-      await this.submit(taggedBEEF)
-    }
-
-    for (const ad of shipToRevoke) {
-      const taggedBEEF = await this.advertiser.revokeAdvertisement(ad)
-      await this.submit(taggedBEEF)
-    }
-
-    for (const ad of slapToRevoke) {
-      const taggedBEEF = await this.advertiser.revokeAdvertisement(ad)
-      await this.submit(taggedBEEF)
-    }
+    // Step 4: Update Advertisements using Promise.all for concurrent operations
+    await Promise.all([
+      ...shipToCreate.map(async (topic) => {
+        try {
+          const taggedBEEF = await advertiser.createSHIPAdvertisement(topic)
+          await this.submit(taggedBEEF)
+        } catch (error) {
+          console.error('Failed to create SHIP advertisement:', error)
+        }
+      }),
+      ...slapToCreate.map(async (service) => {
+        try {
+          const taggedBEEF = await advertiser.createSLAPAdvertisement(service)
+          await this.submit(taggedBEEF)
+        } catch (error) {
+          console.error('Failed to create SLAP advertisement:', error)
+        }
+      }),
+      ...shipToRevoke.map(async (ad) => {
+        try {
+          const taggedBEEF = await advertiser.revokeAdvertisement(ad)
+          await this.submit(taggedBEEF)
+        } catch (error) {
+          console.error('Failed to revoke SHIP advertisement:', error)
+        }
+      }),
+      ...slapToRevoke.map(async (ad) => {
+        try {
+          const taggedBEEF = await advertiser.revokeAdvertisement(ad)
+          await this.submit(taggedBEEF)
+        } catch (error) {
+          console.error('Failed to revoke SLAP advertisement:', error)
+        }
+      })
+    ])
   }
 
   /**

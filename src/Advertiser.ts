@@ -23,18 +23,16 @@ export interface Advertiser {
   createSLAPAdvertisement: (service: string) => Promise<TaggedBEEF>
 
   /**
-   * Finds all SHIP advertisements for a given topic.
-   * @param topic - The topic name to search for.
+   * Finds all SHIP advertisements.
    * @returns A promise that resolves to an array of SHIP advertisements.
    */
-  findAllSHIPAdvertisements: (topic: string) => Promise<SHIPAdvertisement[]>
+  findAllSHIPAdvertisements: () => Promise<SHIPAdvertisement[]>
 
   /**
-   * Finds all SLAP advertisements for a given service.
-   * @param service - The service name to search for.
+   * Finds all SLAP advertisements.
    * @returns A promise that resolves to an array of SLAP advertisements.
    */
-  findAllSLAPAdvertisements: (service: string) => Promise<SLAPAdvertisement[]>
+  findAllSLAPAdvertisements: () => Promise<SLAPAdvertisement[]>
 
   /**
    * Revokes an existing advertisement, either SHIP or SLAP.

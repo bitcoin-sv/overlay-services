@@ -279,7 +279,9 @@ export class Engine {
       if (this.shipTrackers !== undefined && this.shipTrackers.length !== 0 && relevantTopics.includes('tm_ship')) {
         this.shipTrackers.forEach(tracker => {
           if (domainToTopicsMap.get(tracker) !== undefined) {
-            domainToTopicsMap.set(tracker, new Set<string>('tm_ship'))
+            domainToTopicsMap.get(tracker)?.add('tm_ship')
+          } else {
+            domainToTopicsMap.set(tracker, new Set(['tm_ship']))
           }
         })
       }
@@ -288,7 +290,9 @@ export class Engine {
       if (this.slapTrackers !== undefined && this.slapTrackers.length !== 0 && relevantTopics.includes('tm_slap')) {
         this.slapTrackers.forEach(tracker => {
           if (domainToTopicsMap.get(tracker) !== undefined) {
-            domainToTopicsMap.set(tracker, new Set<string>('tm_slap'))
+            domainToTopicsMap.get(tracker)?.add('tm_slap')
+          } else {
+            domainToTopicsMap.set(tracker, new Set<string>(['tm_slap']))
           }
         })
       }
@@ -408,41 +412,42 @@ export class Engine {
     const slapToCreate = Array.from(requiredSLAPAdvertisements).filter(service => !existingSLAPServices.has(service))
     const slapToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.service))
 
-    // Step 4: Update Advertisements using Promise.all for concurrent operations
-    await Promise.all([
-      ...shipToCreate.map(async (topic) => {
-        try {
-          const taggedBEEF = await advertiser.createSHIPAdvertisement(topic)
-          await this.submit(taggedBEEF)
-        } catch (error) {
-          console.error('Failed to create SHIP advertisement:', error)
-        }
-      }),
-      ...slapToCreate.map(async (service) => {
-        try {
-          const taggedBEEF = await advertiser.createSLAPAdvertisement(service)
-          await this.submit(taggedBEEF)
-        } catch (error) {
-          console.error('Failed to create SLAP advertisement:', error)
-        }
-      }),
-      ...shipToRevoke.map(async (ad) => {
-        try {
-          const taggedBEEF = await advertiser.revokeAdvertisement(ad)
-          await this.submit(taggedBEEF)
-        } catch (error) {
-          console.error('Failed to revoke SHIP advertisement:', error)
-        }
-      }),
-      ...slapToRevoke.map(async (ad) => {
-        try {
-          const taggedBEEF = await advertiser.revokeAdvertisement(ad)
-          await this.submit(taggedBEEF)
-        } catch (error) {
-          console.error('Failed to revoke SLAP advertisement:', error)
-        }
-      })
-    ])
+    // Step 4: Update Advertisements
+    for (const topic of shipToCreate) {
+      try {
+        const taggedBEEF = await advertiser.createSHIPAdvertisement(topic)
+        await this.submit(taggedBEEF)
+      } catch (error) {
+        console.error('Failed to create SHIP advertisement:', error)
+      }
+    }
+
+    for (const service of slapToCreate) {
+      try {
+        const taggedBEEF = await advertiser.createSLAPAdvertisement(service)
+        await this.submit(taggedBEEF)
+      } catch (error) {
+        console.error('Failed to create SLAP advertisement:', error)
+      }
+    }
+
+    for (const ad of shipToRevoke) {
+      try {
+        const taggedBEEF = await advertiser.revokeAdvertisement(ad)
+        await this.submit(taggedBEEF)
+      } catch (error) {
+        console.error('Failed to revoke SHIP advertisement:', error)
+      }
+    }
+
+    for (const ad of slapToRevoke) {
+      try {
+        const taggedBEEF = await advertiser.revokeAdvertisement(ad)
+        await this.submit(taggedBEEF)
+      } catch (error) {
+        console.error('Failed to revoke SLAP advertisement:', error)
+      }
+    }
   }
 
   /**

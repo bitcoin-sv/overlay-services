@@ -644,6 +644,11 @@ export class Engine {
    */
   async handleNewMerkleProof(txid: string, proof: MerklePath): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid)
+
+    if (outputs == undefined || outputs.length === 0) {
+      throw new Error('Could not find matching transaction outputs for proof ingest!')
+    }
+
     for (const output of outputs) {
       await this.updateMerkleProof(output, proof, [])
     }

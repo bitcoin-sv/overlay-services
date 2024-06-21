@@ -300,7 +300,7 @@ export class Engine {
       // Note: We are depending on window.fetch, this may not be ideal for the long term.
       for (const [domain, topics] of domainToTopicsMap.entries()) {
         if (domain !== this.hostingURL) {
-          const promise = fetch(`${String(domain)}/submit`, {
+          const promise = fetch(`${domain}/submit`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
@@ -312,13 +312,13 @@ export class Engine {
         }
       }
 
-      try {
-        await Promise.all(broadcastPromises)
-      } catch (error) {
-        console.error('Error during broadcasting:', error)
-      }
+      // Handle promises in the background and log errors without waiting for them to complete.
+      broadcastPromises.forEach(promise => {
+        promise.catch(error => console.error('Error during broadcasting:', error))
+      })
     }
 
+    // Immediately return from the function without waiting for the promises to resolve.
     return steak
   }
 

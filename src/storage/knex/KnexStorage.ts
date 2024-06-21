@@ -38,21 +38,24 @@ export class KnexStorage implements Storage {
   }
 
   async findOutputsForTransaction(txid: string): Promise<Output[]> {
-    const [output] = await this.knex('outputs').where({ txid }).select(
+    const outputs = await this.knex('outputs').where({ txid }).select(
       'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
     )
-    if (output === undefined || output === null) {
+
+    if (outputs === undefined || outputs.length === 0) {
       return []
     }
-    return {
+
+    return outputs.map(output => ({
       ...output,
       outputScript: [...output.outputScript],
       beef: [...output.beef],
       spent: Boolean(output.spent),
       outputsConsumed: JSON.parse(output.outputsConsumed),
       consumedBy: JSON.parse(output.consumedBy)
-    }
+    }))
   }
+
 
   async deleteOutput(txid: string, outputIndex: number, topic: string): Promise<void> {
     await this.knex('outputs').where({

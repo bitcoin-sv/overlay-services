@@ -42,10 +42,14 @@ export class Engine {
 
   /**
    * Submits a transaction for processing by Overlay Services.
-   * @param taggedBEEF — The transaction to process
-   * @returns The submitted transaction execution acknowledgement
+   * @param {TaggedBEEF} taggedBEEF - The transaction to process
+   * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
+   * 
+   * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
+   * 
+   * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
-  async submit(taggedBEEF: TaggedBEEF): Promise<STEAK> {
+  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
       if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)
@@ -213,6 +217,11 @@ export class Engine {
       steak[topic] = admissableOutputs
     }
 
+    // Call the callback function if it is provided
+    if (onSteakReady) {
+      onSteakReady(steak)
+    }
+
     // Broadcast the transaction
     if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
       await this.broadcaster.broadcast(tx)
@@ -300,7 +309,7 @@ export class Engine {
       // Note: We are depending on window.fetch, this may not be ideal for the long term.
       for (const [domain, topics] of domainToTopicsMap.entries()) {
         if (domain !== this.hostingURL) {
-          const promise = fetch(`${domain}/submit`, {
+          const promise = fetch(`${String(domain)}/submit`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
@@ -312,10 +321,11 @@ export class Engine {
         }
       }
 
-      // Handle promises in the background and log errors without waiting for them to complete.
-      broadcastPromises.forEach(promise => {
-        promise.catch(error => console.error('Error during broadcasting:', error))
-      })
+      try {
+        await Promise.all(broadcastPromises)
+      } catch (error) {
+        console.error('Error during broadcasting:', error)
+      }
     }
 
     // Immediately return from the function without waiting for the promises to resolve.

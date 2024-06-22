@@ -70,7 +70,7 @@ export class KnexStorage implements Storage {
       outputScript: Buffer.from(output.outputScript),
       topic: output.topic,
       satoshis: Number(output.satoshis),
-      beef: Buffer.from(new Uint8Array(output.beef)),
+      beef: Buffer.from(output.beef),
       outputsConsumed: JSON.stringify(output.outputsConsumed),
       consumedBy: JSON.stringify(output.consumedBy),
       spent: output.spent
@@ -98,7 +98,7 @@ export class KnexStorage implements Storage {
       txid,
       outputIndex,
       topic
-    }).update('beef', beef)
+    }).update('beef', Buffer.from(beef))
   }
 
   async insertAppliedTransaction(tx: { txid: string, topic: string }): Promise<void> {

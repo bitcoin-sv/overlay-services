@@ -42,10 +42,14 @@ export class Engine {
 
   /**
    * Submits a transaction for processing by Overlay Services.
-   * @param taggedBEEF — The transaction to process
-   * @returns The submitted transaction execution acknowledgement
+   * @param {TaggedBEEF} taggedBEEF - The transaction to process
+   * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
+   * 
+   * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
+   * 
+   * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
-  async submit(taggedBEEF: TaggedBEEF): Promise<STEAK> {
+  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
       if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)
@@ -213,6 +217,11 @@ export class Engine {
       steak[topic] = admissableOutputs
     }
 
+    // Call the callback function if it is provided
+    if (onSteakReady) {
+      onSteakReady(steak)
+    }
+
     // Broadcast the transaction
     if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
       await this.broadcaster.broadcast(tx)
@@ -319,6 +328,7 @@ export class Engine {
       }
     }
 
+    // Immediately return from the function without waiting for the promises to resolve.
     return steak
   }
 
@@ -644,6 +654,11 @@ export class Engine {
    */
   async handleNewMerkleProof(txid: string, proof: MerklePath): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid)
+
+    if (outputs == undefined || outputs.length === 0) {
+      throw new Error('Could not find matching transaction outputs for proof ingest!')
+    }
+
     for (const output of outputs) {
       await this.updateMerkleProof(output, proof, [])
     }

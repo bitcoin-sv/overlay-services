@@ -22,7 +22,7 @@ export class Engine {
    * @param {[key: string]: LookupService} lookupServices - manages UTXO lookups
    * @param {Storage} storage - for interacting with internally-managed persistent data
    * @param {ChainTracker} chainTracker - Verifies SPV data associated with transactions
-   * @param {string} hostingURL
+   * @param {string} [hostingURL] - The URL this engine is hosted at. Required if going to support peer-discovery with an advertiser.
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
@@ -33,7 +33,7 @@ export class Engine {
     public lookupServices: { [key: string]: LookupService },
     public storage: Storage,
     public chainTracker: ChainTracker,
-    public hostingURL: string,
+    public hostingURL?: string,
     public shipTrackers?: string[],
     public slapTrackers?: string[],
     public broadcaster?: Broadcaster,

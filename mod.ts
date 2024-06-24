@@ -4,7 +4,7 @@ export type { LookupService } from "./src/LookupService.js"
 export type { TopicManager } from "./src/TopicManager.js"
 
 // Interfaces and structures
-export type { Storage } from "./src/storage/Storage.js"
+export type { Storage, AppliedTransaction } from "./src/storage/Storage.js"
 export type { Output } from './src/Output.js'
 export type { AdmittanceInstructions } from './src/AdmittanceInstructions.js'
 export type { TaggedBEEF } from './src/TaggedBEEF.js'

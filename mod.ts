@@ -14,5 +14,6 @@ export type { LookupFormula } from './src/LookupFormula.js'
 export type { LookupAnswer } from './src/LookupAnswer.js'
 
 // The Knex storage system
+export * from './src/storage/Storage.js'
 export { KnexStorage } from './src/storage/knex/KnexStorage.js'
 export * as KnexStorageMigrations from './src/storage/knex/all-migrations.js'

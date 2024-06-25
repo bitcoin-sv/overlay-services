@@ -624,14 +624,11 @@ export class Engine {
   }
 
   /**
-   * Recursively updates the Merkle proof for the given output and its consumedBy outputs.
-   * If the output matches the source transaction ID, its Merkle proof is updated directly.
-   * Otherwise, the Merkle proof is updated for the corresponding input in each transaction.
+   * Recursively updates beefs (merkle proofs) of this output and its consumedBy lineage.
    *
    * @param output - An output derived from txid which may benefit from new proof.
    * @param txid - The txid for which proof is a valid merkle path.
-   * @param proof - The Merkle proof to be applied to the output or its inputs.
-   * @param sourceTxid - The transaction ID of the source output whose Merkle proof is being updated.
+   * @param proof - The merklePath proving txid is a mined transaction hash
    */
   private async updateMerkleProof(output: Output, txid: string, proof: MerklePath): Promise<void> {
 

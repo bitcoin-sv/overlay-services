@@ -607,7 +607,7 @@ export class Engine {
    * @param txid BE hex string double hash of transaction proven by proof.
    * @param proof for txid
    */
-  updateInputProofs(tx: Transaction, txid: string, proof: MerklePath) {
+  private updateInputProofs(tx: Transaction, txid: string, proof: MerklePath) {
     if (tx.merklePath)
       // transaction already has a proof
       return

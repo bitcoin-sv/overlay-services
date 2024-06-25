@@ -597,42 +597,52 @@ export class Engine {
   }
 
   /**
+   * Given a new transaction proof (txid, proof),
+   * 
+   * update tx.merklePath if appropriate,
+   * 
+   * and if not, recurse through all input sourceTransactions.
+   * 
+   * @param tx transaction which may benefit from new proof.
+   * @param txid BE hex string double hash of transaction proven by proof.
+   * @param proof for txid
+   */
+  updateInputProofs(tx: Transaction, txid: string, proof: MerklePath) {
+    if (tx.merklePath)
+      // transaction already has a proof
+      return
+    
+    if (tx.id('hex') === txid) {
+      tx.merklePath = proof
+    } else {
+      for (const input of tx.inputs) {
+        // All inputs must have sourceTransactions
+        const stx = input.sourceTransaction!
+        this.updateInputProofs(stx, txid, proof) 
+      }
+    }
+  }
+
+  /**
    * Recursively updates the Merkle proof for the given output and its consumedBy outputs.
    * If the output matches the source transaction ID, its Merkle proof is updated directly.
    * Otherwise, the Merkle proof is updated for the corresponding input in each transaction.
    *
-   * @param output - The output to update with the new Merkle proof.
+   * @param output - An output derived from txid which may benefit from new proof.
+   * @param txid - The txid for which proof is a valid merkle path.
    * @param proof - The Merkle proof to be applied to the output or its inputs.
    * @param sourceTxid - The transaction ID of the source output whose Merkle proof is being updated.
    */
-  private async updateMerkleProof(output: Output, proof: MerklePath, recursionPath: Array<{ txid: string, outputIndex: number }>): Promise<void> {
-    // Add current output to recursionPath
-    recursionPath.push({ txid: output.txid, outputIndex: output.outputIndex })
+  private async updateMerkleProof(output: Output, txid: string, proof: MerklePath): Promise<void> {
 
     const tx = Transaction.fromBEEF(output.beef)
 
-    // Handle the base case
-    if (output.txid === recursionPath[0].txid) {
-      tx.merklePath = proof
-    } else {
-      // Traverse inputs to update the Merkle proof according to the recursionPath
-      let currentInputs = tx.inputs
-
-      for (let i = recursionPath.length - 1; i >= 0; i--) {
-        const crumb = recursionPath[i]
-
-        for (const input of currentInputs) {
-          if (input.sourceTXID === crumb.txid && input.sourceOutputIndex === crumb.outputIndex) {
-            if (i === 0 && input.sourceTransaction !== undefined) {
-              input.sourceTransaction.merklePath = proof
-            } else if (input.sourceTransaction !== undefined) {
-              currentInputs = input.sourceTransaction.inputs
-              break
-            }
-          }
-        }
-      }
-    }
+    if (tx.merklePath)
+      // Already have a proof for this output's transaction.
+      return
+    
+    // recursively update all sourceTransactions proven by (txid,proof)
+    this.updateInputProofs(tx, txid, proof)
 
     // Update the output's BEEF in the storage DB
     await this.storage.updateOutputBeef(output.txid, output.outputIndex, output.topic, tx.toBEEF())
@@ -641,7 +651,7 @@ export class Engine {
     for (const consumingOutput of output.consumedBy) {
       const consumedOutputs = await this.storage.findOutputsForTransaction(consumingOutput.txid)
       for (const consumedOutput of consumedOutputs) {
-        await this.updateMerkleProof(consumedOutput, proof, [])
+        await this.updateMerkleProof(consumedOutput, txid, proof)
       }
     }
   }
@@ -660,7 +670,7 @@ export class Engine {
     }
 
     for (const output of outputs) {
-      await this.updateMerkleProof(output, proof, [])
+      await this.updateMerkleProof(output, txid, proof)
     }
   }
 

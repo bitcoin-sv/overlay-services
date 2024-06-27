@@ -36,6 +36,14 @@ export interface Storage {
   findOutputsForTransaction: (txid: string) => Promise<Output[]>
 
   /**
+   * Finds UTXOs that have been admitted into a given topic
+   * @param topic - The topic for which we want to find Unspent Transaction Outputs (UTXOs).
+   * @param since - Optional parameter indicating the minimum date (timestamp) to retrieve matching UTXOs from.
+   * @returns A promise that resolves to an array of matching UTXOs.
+   */
+  findUTXOsForTopic: (topic: string, since?: number) => Promise<Output[]>
+
+  /**
    * Deletes an output from storage
    * @param txid — The TXID of the output to delete
    * @param outputIndex — The index of the output to delete

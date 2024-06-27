@@ -11,6 +11,10 @@ import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
+import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from '@bsv/gasp'
+import { SyncConfiguration } from './SyncConfiguration.js'
+import { OverlayGASPStorage } from './GASP/OverlayGASPStorage.js'
+import { OverlayGASPRemote } from './GASP/OverlayGASPRemote.js'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -27,6 +31,7 @@ export class Engine {
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
    * @param {string} slapTrackers - SAP domains we know to bootstrap the system
+   * @param {Record<string, string[] | 'SHIP'>}
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -37,7 +42,8 @@ export class Engine {
     public shipTrackers?: string[],
     public slapTrackers?: string[],
     public broadcaster?: Broadcaster,
-    public advertiser?: Advertiser
+    public advertiser?: Advertiser,
+    public syncConfiguration?: SyncConfiguration
   ) { }
 
   /**
@@ -218,7 +224,7 @@ export class Engine {
     }
 
     // Call the callback function if it is provided
-    if (onSteakReady) {
+    if (onSteakReady !== undefined) {
       onSteakReady(steak)
     }
 
@@ -461,6 +467,120 @@ export class Engine {
   }
 
   /**
+   * This method goes through each topic that we support syncing and attempts to sync with each endpoint
+   * associated with that topic. If the sync configuration is 'SHIP', it will sync to all peers that support
+   * the topic.
+   *
+   * @throws Error if the overlay service engine is not configured for topical synchronization.
+   */
+  async startGASPSync(): Promise<void> {
+    if (this.syncConfiguration === undefined) {
+      throw new Error('Overlay Service Engine not configured for topical synchronization!')
+    }
+
+    for (const topic of Object.keys(this.syncConfiguration)) {
+      // Make sure syncEndpoints is an array or SHIP
+      let syncEndpoints: string[] | string = this.syncConfiguration[topic]
+
+      if (syncEndpoints === 'SHIP') {
+        // Perform lookup and find ship advertisements to set syncEndpoints for topic
+        const lookupAnswer = await this.lookup({
+          service: 'ls_ship',
+          query: {
+            topic
+          }
+        })
+
+        // Lookup will currently always return type output-list
+        if (lookupAnswer.type === 'output-list') {
+          const endpointSet = new Set<string>()
+
+          lookupAnswer.outputs.forEach(output => {
+            try {
+              // Parse out the advertisements using the provided parser
+              const tx = Transaction.fromBEEF(output.beef)
+              const advertisement = this.advertiser?.parseAdvertisement(tx.outputs[output.outputIndex].lockingScript)
+              if (advertisement !== undefined && advertisement !== null && advertisement.protocol === 'SHIP') {
+                endpointSet.add(advertisement.domain)
+              }
+            } catch (error) {
+              console.error('Failed to parse advertisement output:', error)
+            }
+          })
+
+          syncEndpoints = Array.from(endpointSet)
+        }
+      }
+
+      // Now syncEndpoints is guaranteed to be an array of strings without duplicates
+      // Note: Consider MySQL DB locking implications when running synchronization in parallel
+      if (Array.isArray(syncEndpoints)) {
+        await Promise.all(syncEndpoints.map(async endpoint => {
+          // Sync to each host that is associated with this topic
+          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint), 0, `[${topic} ${endpoint}] `, true)
+          await gasp.sync()
+        }))
+      }
+    }
+  }
+
+  /**
+   * Given a GASP request, create an initial response.
+   *
+   * This method processes an initial synchronization request by finding the relevant UTXOs for the given topic
+   * since the provided timestamp in the request. It constructs a response that includes a list of these UTXOs
+   * and the timestamp from the initial request.
+   *
+   * @param initialRequest - The GASP initial request containing the version and the timestamp since the last sync.
+   * @param topic - The topic for which UTXOs are being requested.
+   * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided timestamp.
+   */
+  async provideForeignSyncResponse(initialRequest: GASPInitialRequest, topic: string): Promise<GASPInitialResponse> {
+    const UTXOs = await this.storage.findUTXOsForTopic(topic, initialRequest.since)
+
+    return {
+      UTXOList: UTXOs.map(output => {
+        return {
+          txid: output.txid,
+          outputIndex: output.outputIndex
+        }
+      }),
+      since: initialRequest.since
+    }
+  }
+
+  /**
+   * Provides a GASPNode for the given graphID, transaction ID, and output index.
+   *
+   * @param graphID - The identifier for the graph to which this node belongs (in the format txid.outputIndex).
+   * @param txid - The transaction ID for the current output.
+   * @param outputIndex - The index of the output in the transaction.
+   * @returns A promise that resolves to a GASPNode containing the raw transaction and other optional data.
+   * @throws An error if no output is found for the given transaction ID and output index.
+   */
+  async provideForeignGASPNode(graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
+    const output = await this.storage.findOutput(txid, outputIndex)
+
+    if (output === undefined || output === null) {
+      throw new Error('No matching output found!')
+    }
+
+    const tx = Transaction.fromBEEF(output.beef)
+    const rawTx = tx.toHex()
+
+    const node: GASPNode = {
+      rawTx,
+      graphID,
+      outputIndex
+    }
+    if (tx.merklePath !== undefined) {
+      node.proof = tx.merklePath.toHex()
+    }
+
+    return node
+  }
+
+  /**
    * Traverse and return the history of a UTXO.
    *
    * This method traverses the history of a given Unspent Transaction Output (UTXO) and returns
@@ -611,14 +731,14 @@ export class Engine {
     if (tx.merklePath)
       // transaction already has a proof
       return
-    
+
     if (tx.id('hex') === txid) {
       tx.merklePath = proof
     } else {
       for (const input of tx.inputs) {
         // All inputs must have sourceTransactions
         const stx = input.sourceTransaction!
-        this.updateInputProofs(stx, txid, proof) 
+        this.updateInputProofs(stx, txid, proof)
       }
     }
   }
@@ -637,7 +757,7 @@ export class Engine {
     if (tx.merklePath)
       // Already have a proof for this output's transaction.
       return
-    
+
     // recursively update all sourceTransactions proven by (txid,proof)
     this.updateInputProofs(tx, txid, proof)
 

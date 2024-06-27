@@ -56,6 +56,31 @@ export class KnexStorage implements Storage {
     }))
   }
 
+  async findUTXOsForTopic(topic: string, since?: number): Promise<Output[]> {
+    const query = this.knex('outputs').where({ topic, spent: false })
+
+    if (since !== undefined) {
+      const sinceDate = new Date(since).toISOString()
+      await query.andWhere('created_at', '>=', sinceDate)
+    }
+
+    const outputs = await query.select(
+      'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
+    )
+
+    if (outputs === undefined || outputs.length === 0) {
+      return []
+    }
+
+    return outputs.map(output => ({
+      ...output,
+      outputScript: JSON.parse(output.outputScript),
+      beef: JSON.parse(output.beef),
+      spent: Boolean(output.spent),
+      outputsConsumed: JSON.parse(output.outputsConsumed),
+      consumedBy: JSON.parse(output.consumedBy)
+    }))
+  }
 
   async deleteOutput(txid: string, outputIndex: number, topic: string): Promise<void> {
     await this.knex('outputs').where({

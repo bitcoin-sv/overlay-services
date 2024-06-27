@@ -61,6 +61,11 @@ export class Engine {
     const txValid = await tx.verify(this.chainTracker)
     if (!txValid) throw new Error('Unable to verify SPV information.')
 
+    // Broadcast the transaction
+    if (this.broadcaster !== undefined) {
+      await this.broadcaster.broadcast(tx)
+    }
+
     // Find UTXOs belonging to a particular topic
     const steak: STEAK = {}
     for (const topic of taggedBEEF.topics) {
@@ -220,11 +225,6 @@ export class Engine {
     // Call the callback function if it is provided
     if (onSteakReady) {
       onSteakReady(steak)
-    }
-
-    // Broadcast the transaction
-    if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
-      await this.broadcaster.broadcast(tx)
     }
 
     // If we don't have an advertiser, just return the steak
@@ -611,14 +611,14 @@ export class Engine {
     if (tx.merklePath)
       // transaction already has a proof
       return
-    
+
     if (tx.id('hex') === txid) {
       tx.merklePath = proof
     } else {
       for (const input of tx.inputs) {
         // All inputs must have sourceTransactions
         const stx = input.sourceTransaction!
-        this.updateInputProofs(stx, txid, proof) 
+        this.updateInputProofs(stx, txid, proof)
       }
     }
   }
@@ -637,7 +637,7 @@ export class Engine {
     if (tx.merklePath)
       // Already have a proof for this output's transaction.
       return
-    
+
     // recursively update all sourceTransactions proven by (txid,proof)
     this.updateInputProofs(tx, txid, proof)
 

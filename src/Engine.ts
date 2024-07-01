@@ -8,7 +8,7 @@ import { STEAK } from './STEAK.js'
 import { LookupQuestion } from './LookupQuestion.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
-import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
+import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
 
@@ -63,7 +63,10 @@ export class Engine {
 
     // Broadcast the transaction
     if (this.broadcaster !== undefined) {
-      await this.broadcaster.broadcast(tx)
+      const response = await this.broadcaster.broadcast(tx)
+      if (isBroadcastFailure(response)) {
+        throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
+      }
     }
 
     // Find UTXOs belonging to a particular topic

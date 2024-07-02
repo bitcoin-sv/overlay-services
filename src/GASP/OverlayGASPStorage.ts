@@ -2,21 +2,28 @@ import { GASPNode, GASPNodeResponse, GASPStorage } from '@bsv/gasp'
 import { MerklePath, Transaction } from '@bsv/sdk'
 import { Engine } from 'mod.js'
 
-interface Graph {
-  graphID: string
-  time: number
+/**
+ * Represents a node in the temporary graph.
+ */
+interface GraphNode {
   txid: string
-  outputIndex: number
+  time: number
+  graphID: string
   rawTx: string
-  inputs: Record<string, Graph>
-  proof: string
-  spentBy: string
+  outputIndex: number
+  spentBy?: string
+  proof?: string
+  txMetadata?: string
+  outputMetadata?: string
+  inputs?: Record<string, { hash: string }> | undefined
+  children: GraphNode[]
+  parent?: GraphNode
 }
 
 export class OverlayGASPStorage implements GASPStorage {
-  private readonly temporaryGraphNodeRefs: Record<string, Graph>
+  private readonly temporaryGraphNodeRefs: Record<string, GraphNode> = {}
 
-  constructor(public topic: string, public engine: Engine) { this.temporaryGraphNodeRefs = {} }
+  constructor(public topic: string, public engine: Engine, public maxNodesInGraph?: number) { }
 
   /**
    * 
@@ -66,23 +73,26 @@ export class OverlayGASPStorage implements GASPStorage {
     } else {
       // The transaction is not admissible, get inputs needed for further verification
       // TopicManagers should implement a function to identify which inputs are needed.
-      if (typeof this.engine.managers[this.topic].identifyNeededInputs !== 'function' && this.engine.managers[this.topic].identifyNeededInputs !== undefined) {
+      if (this.engine.managers[this.topic] !== undefined && typeof this.engine.managers[this.topic].identifyNeededInputs === 'function') {
         for (const input of parsedTx.inputs) {
           response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
             metadata: false
           }
         }
         return response
-      }
-      try {
-        const neededInputs = await this.engine.managers[this.topic].identifyNeededInputs(parsedTx.toBEEF())!
-        for (const input of neededInputs) {
-          response.requestedInputs[`${input.txid as string}.${input.outputIndex as number}`] = {
-            metadata: false
+      } else {
+        try {
+          const neededInputs = await this.engine.managers[this.topic].identifyNeededInputs?.(parsedTx.toBEEF()) ?? []
+          for (const input of neededInputs) {
+            response.requestedInputs[`${input.txid as string}.${input.outputIndex as number}`] = {
+              metadata: false
+            }
           }
+          return response
+        } catch (e) {
+          console.error(`An error occurred when identifying needed inputs for transaction: ${parsedTx.id('hex')}.${tx.outputIndex}!`)
         }
-        return response
-      } catch (e) { }
+      }
     }
   }
 
@@ -93,18 +103,51 @@ export class OverlayGASPStorage implements GASPStorage {
   * @throws If the node cannot be appended to the graph, either because the graph ID is for a graph the recipient does not want or because the graph has grown to be too large before being finalized.
   */
   async appendToGraph(tx: GASPNode, spentBy?: string | undefined): Promise<void> {
+    if (this.maxNodesInGraph !== undefined && Object.keys(this.temporaryGraphNodeRefs).length > this.maxNodesInGraph) {
+      throw new Error('The max number of nodes in transaction graph has been reached!')
+    }
+
+    const parsedTx = Transaction.fromHex(tx.rawTx)
+    const txid = parsedTx.id('hex')
+    if (tx.proof !== undefined) {
+      parsedTx.merklePath = MerklePath.fromHex(tx.proof)
+    }
+
     // Throw if:
     // 1. TODO: graphID is for a graph the recipient does not want (stipulated where?)
     // 2. TODO: The graph has grown to be too large before being finalized (based on some defined limit?)
 
     // Given the passed in node, append to the temp graph
     // Use the spentBy param which should be a txid.inputIndex for the node which spent this one in 36-byte format
+    const newGraphNode: GraphNode = {
+      txid,
+      time: Date.now(), // TODO: Determine required format for Time
+      graphID: tx.graphID,
+      rawTx: tx.rawTx,
+      outputIndex: tx.outputIndex,
+      proof: tx.proof,
+      txMetadata: tx.txMetadata,
+      outputMetadata: tx.outputMetadata,
+      inputs: tx.inputs,
+      children: []
+    }
 
     // If spentBy is undefined, then we know it's the root node.
-    // Set the root node on the temporary graph
+    if (spentBy === undefined) {
+      this.temporaryGraphNodeRefs[tx.graphID] = newGraphNode
+    } else {
+      // Find the parent node based on spentBy
+      const parentNode = this.temporaryGraphNodeRefs[spentBy]
 
-    // Else, then we should traverse the graph and figure where it belongs based on the parent
-    // O(1) lookup if we use HashMap
+      if (parentNode !== undefined) {
+        // Set parent-child relationship
+        parentNode.children.push(newGraphNode)
+        newGraphNode.parent = parentNode
+        this.temporaryGraphNodeRefs[tx.graphID] = newGraphNode
+      } else {
+        throw new Error(`Parent node with GraphID ${spentBy} not found`)
+      }
+    }
   }
 
   /**
@@ -119,31 +162,76 @@ export class OverlayGASPStorage implements GASPStorage {
     // a) For each node in the chain we need to check topical admittance. For every chain.
     // Take into account previousCoins once you've validated child outputs
 
-    const validationFunc = async (graph: Graph, validateCurrentNode = false): Promise<boolean> => {
-      if (Object.values(graph.inputs).length === 0 || validateCurrentNode) {
-        // At the deepest point
-        const parsedTx = Transaction.fromHex(graph.rawTx)
-        // TODO: Consider case where no proof?
-        parsedTx.merklePath = MerklePath.fromHex(graph.proof)
-        // TODO: Take into account the parent nodes?
-        const admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), [])
-        if (admittanceResult.outputsToAdmit.includes(graph.outputIndex) === true) {
-          return await validationFunc(this.temporaryGraphNodeRefs[graph.spentBy], true)
+    const validationMap = new Map<string, boolean>()
+
+    const validationFunc = async (graphNode: GraphNode): Promise<boolean> => {
+      if (validationMap.has(graphNode.graphID)) {
+        return validationMap.get(graphNode.graphID) || false
+      }
+
+      let parsedTx
+      try {
+        parsedTx = Transaction.fromHex(graphNode.rawTx)
+        if (graphNode.proof !== undefined) {
+          parsedTx.merklePath = MerklePath.fromHex(graphNode.proof)
         }
+      } catch (error) {
+        console.error('Error parsing transaction or proof:', error)
         return false
-      } else {
-        let finalResult = false
-        for (const input in graph.inputs) {
-          // If any of the inputs are valid, this graph is valid
-          const result = await validationFunc(this.temporaryGraphNodeRefs[input])
-          if (!finalResult) {
-            finalResult = result
+      }
+
+      const validatedChildren: GraphNode[] = []
+      for (const child of graphNode.children) {
+        const childNode = this.temporaryGraphNodeRefs[child.graphID]
+        if (childNode !== undefined) {
+          if (!validationMap.has(childNode.graphID)) {
+            const isValidChild = await validationFunc(childNode)
+            if (isValidChild) {
+              validatedChildren.push(childNode)
+            }
+          } else if (validationMap.get(childNode.graphID)) {
+            validatedChildren.push(childNode)
           }
         }
-        return finalResult
       }
+
+      let admittanceResult
+      try {
+        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), validatedChildren.map(child => child.outputIndex))
+      } catch (error) {
+        console.error('Error in admittance check:', error)
+        return false
+      }
+
+      const isValid = admittanceResult.outputsToAdmit.includes(graphNode.outputIndex)
+      validationMap.set(graphNode.graphID, isValid)
+
+      if (isValid === false) {
+        return false
+      }
+
+      // Reached the root successfully
+      if (graphNode.parent === undefined) {
+        return true
+      }
+
+      const parentNode = this.temporaryGraphNodeRefs[graphNode.parent.graphID]
+      if (parentNode === undefined) {
+        console.error('Parent node not found for:', graphNode.graphID)
+        return false
+      }
+      return await validationFunc(parentNode)
     }
-    await validationFunc(this.temporaryGraphNodeRefs[graphID])
+
+    const tipNode = this.temporaryGraphNodeRefs[graphID]
+    if (tipNode === undefined) {
+      throw new Error(`Graph node with ID ${graphID} not found`)
+    }
+
+    const isValid = await validationFunc(tipNode)
+    if (!isValid) {
+      throw new Error('The graph is not well-anchored')
+    }
   }
 
   /**

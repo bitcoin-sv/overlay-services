@@ -1,11 +1,11 @@
 import { GASPNode, GASPNodeResponse, GASPStorage } from '@bsv/gasp'
 import { MerklePath, Transaction } from '@bsv/sdk'
-import { Engine } from 'mod.js'
+import { Engine } from '../Engine.js'
 
 /**
  * Represents a node in the temporary graph.
  */
-interface GraphNode {
+export interface GraphNode {
   txid: string
   time: number
   graphID: string
@@ -21,7 +21,7 @@ interface GraphNode {
 }
 
 export class OverlayGASPStorage implements GASPStorage {
-  private readonly temporaryGraphNodeRefs: Record<string, GraphNode> = {}
+  readonly temporaryGraphNodeRefs: Record<string, GraphNode> = {}
 
   constructor(public topic: string, public engine: Engine, public maxNodesInGraph?: number) { }
 
@@ -103,7 +103,7 @@ export class OverlayGASPStorage implements GASPStorage {
   * @throws If the node cannot be appended to the graph, either because the graph ID is for a graph the recipient does not want or because the graph has grown to be too large before being finalized.
   */
   async appendToGraph(tx: GASPNode, spentBy?: string | undefined): Promise<void> {
-    if (this.maxNodesInGraph !== undefined && Object.keys(this.temporaryGraphNodeRefs).length > this.maxNodesInGraph) {
+    if (this.maxNodesInGraph !== undefined && Object.keys(this.temporaryGraphNodeRefs).length >= this.maxNodesInGraph) {
       throw new Error('The max number of nodes in transaction graph has been reached!')
     }
 

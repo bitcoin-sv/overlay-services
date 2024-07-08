@@ -49,12 +49,13 @@ export class Engine {
    * Submits a transaction for processing by Overlay Services.
    * @param {TaggedBEEF} taggedBEEF - The transaction to process
    * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
+   * @param {string} mode — Indicates the submission behavior, whether historical or current. Historical transactions are not broadcast or propagated.
    * 
    * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
    * 
    * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
-  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void): Promise<STEAK> {
+  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx'): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
       if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)

@@ -1085,8 +1085,6 @@ export class OverlayGASPStorage implements GASPStorage {
       throw new Error('The max number of nodes in transaction graph has been reached!')
     }
 
-    // TODO: Also throw if graphID is for a graph the recipient does not want (stipulated where?)
-
     const parsedTx = Transaction.fromHex(tx.rawTx)
     const txid = parsedTx.id('hex')
     if (tx.proof !== undefined) {
@@ -1128,8 +1126,8 @@ export class OverlayGASPStorage implements GASPStorage {
 
   /**
     * Checks whether the given graph, in its current state, makes reference only to transactions that are proven in the blockchain, or already known by the recipient to be valid.
-    * Additionally, in a bredth-first manner (ensuring that all inputs for any given node are processed before nodes that spend them), it ensures that the root node remains valid according to the rules of the overlay's topic manager,
-    * while considering any previous coins which the Manager had previously indicated were either valid or invalid.
+    * Additionally, in a breadth-first manner (ensuring that all inputs for any given node are processed before nodes that spend them), it ensures that the root node remains valid according to the rules of the overlay's topic manager,
+    * while considering any coins which the Manager had previously indicated were either valid or invalid.
     * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
     * @throws If the graph is not well-anchored, according to the rules of Bitcoin or the rules of the Overlay Topic Manager.
     */
@@ -1241,35 +1239,17 @@ export class OverlayGASPStorage implements GASPStorage {
    */
   async finalizeGraph(graphID: string): Promise<void> {
     // Construct an ordered set of BEEFs for the graph
-    const beefSet = new Set<number[]>()
-
-    const hydrator = (node: GraphNode, mode: 'backwards' | 'forwards' = 'backwards'): void => {
-      // Crawl backwards until we get to each earliest ancestor
-      if (mode === 'backwards') {
-        if (node.children.length === 0) {
-          // We are at an earliest point, now we can start going forwards
-          hydrator(node, 'forwards')
-        } else {
-          for (const child of node.children) {
-            // Continue backwards to the earliest nodes
-            hydrator(child, 'backwards')
-          }
-        }
-      } else {
-        // From the ancestors, crawl forwards while serializing BEEFs.
-        // Note that efficiency could be vastly improved since high-order (recent) nodes may be done many times.
-        // We'd need to preserve order while using a hash-map, and refusing to process things that are already there.
-        // A Set achieves the same deduplicative result, while redundantly computing the BEEFs — but it preserves a correct order
-        // (no later BEEF before earlier BEEF may ever be processed).
-        const currentBEEF = this.getBEEFForNode(node)
-        beefSet.add(currentBEEF)
-        if (node.parent) {
-          hydrator(node.parent, 'forwards') // We are in forward mode
-        }
+    const beefs: number[][] = []
+    const hydrator = (node: GraphNode): void => {
+      const currentBEEF = this.getBEEFForNode(node)
+      if (beefs.indexOf(currentBEEF) === -1) {
+        beefs.unshift(currentBEEF)
       }
-    }
-    if (beefSet[beefSet.length - 1].graphID !== graphID) {
-      throw new Error('The last element must be the root node.')
+
+      for (const child of node.children) {
+        // Continue backwards to the earliest nodes, adding them onto the beginning
+        hydrator(child)
+      }
     }
 
     // Start the hydrator with the root node
@@ -1280,7 +1260,7 @@ export class OverlayGASPStorage implements GASPStorage {
     hydrator(foundRoot)
 
     // Submit all historical BEEFs in order, finalizing the graph for the current UTXO
-    for (const beef of beefSet) {
+    for (const beef of beefs) {
       await this.engine.submit({
         beef,
         topics: [this.topic]

@@ -1040,6 +1040,7 @@ export class OverlayGASPStorage implements GASPStorage {
         }
       }
     }
+    // Everything else falls through to returning undefined/void, which will terminate the synchronization at this point.
   }
 
   /**

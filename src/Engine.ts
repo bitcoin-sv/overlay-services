@@ -64,11 +64,11 @@ export class Engine {
     // Validate the transaction SPV information
     const tx = Transaction.fromBEEF(taggedBEEF.beef)
     const txid = tx.id('hex')
-    const txValid = await tx.verify(this.chainTracker)
+    const txValid = await tx.verify(this.chainTracker) // Note: also verifying historical-tx with SPV. Needed?
     if (!txValid) throw new Error('Unable to verify SPV information.')
 
-    // Broadcast the transaction
-    if (this.broadcaster !== undefined) {
+    // Broadcast the transaction if not historical and broadcaster is configured
+    if (mode !== 'historical-tx' && this.broadcaster !== undefined) {
       const response = await this.broadcaster.broadcast(tx)
       if (isBroadcastFailure(response)) {
         throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
@@ -232,12 +232,13 @@ export class Engine {
     }
 
     // Call the callback function if it is provided
+    // TODO: To call `onSteakReady` sooner, we could have two loops. First we figure out topical admittance only, then we call `onSteakReeady` and do everything else after the first loop.
     if (onSteakReady !== undefined) {
       onSteakReady(steak)
     }
 
-    // If we don't have an advertiser, just return the steak
-    if (this.advertiser === undefined) {
+    // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
+    if (this.advertiser === undefined || mode === 'historical-tx') {
       return steak
     }
 

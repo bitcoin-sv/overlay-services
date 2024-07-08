@@ -1079,7 +1079,7 @@ export class OverlayGASPStorage implements GASPStorage {
         // Set parent-child relationship
         parentNode.children.push(newGraphNode)
         newGraphNode.parent = parentNode
-        this.temporaryGraphNodeRefs[tx.graphID] = newGraphNode
+        this.temporaryGraphNodeRefs[`${newGraphNode.txid}.${newGraphNode.outputIndex}`] = newGraphNode
       } else {
         throw new Error(`Parent node with GraphID ${spentBy} not found`)
       }

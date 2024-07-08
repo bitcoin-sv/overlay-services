@@ -1011,7 +1011,7 @@ export class OverlayGASPStorage implements GASPStorage {
         }
       }
 
-      return response
+      return await this.stripAlreadyKnownInputs(response)
     }
 
     // Attempt to check if the current transaction is admissible
@@ -1032,7 +1032,7 @@ export class OverlayGASPStorage implements GASPStorage {
               metadata: false
             }
           }
-          return response
+          return await this.stripAlreadyKnownInputs(response)
         } catch (e) {
           console.error(`An error occurred when identifying needed inputs for transaction: ${parsedTx.id('hex')}.${tx.outputIndex}!`)
           // Cut off the graph in case of an error here.
@@ -1048,10 +1048,30 @@ export class OverlayGASPStorage implements GASPStorage {
             metadata: false
           }
         }
-        return response
+        return await this.stripAlreadyKnownInputs(response)
       }
     }
     // Everything else falls through to returning undefined/void, which will terminate the synchronization at this point.
+  }
+
+  /**
+   * Ensures that no inputs are requested from foreign nodes before sending any GASP response
+   * Also terminates graphs if the response would be empty.
+   */
+  private async stripAlreadyKnownInputs(response: GASPNodeResponse | undefined): Promise<GASPNodeResponse | undefined> {
+    if (typeof response === 'undefined') {
+      return response
+    }
+    for (const inputNodeId of Object.keys(response.requestedInputs)) {
+      const [txid, outputIndex] = inputNodeId.split('.')
+      const found = await this.engine.storage.findOutput(txid, Number(outputIndex), this.topic)
+      if (found) {
+        delete response.requestedInputs[inputNodeId]
+      }
+    }
+    if (Object.keys(response.requestedInputs).length === 0) {
+      return undefined
+    }
   }
 
   /**
@@ -1108,8 +1128,10 @@ export class OverlayGASPStorage implements GASPStorage {
 
   /**
     * Checks whether the given graph, in its current state, makes reference only to transactions that are proven in the blockchain, or already known by the recipient to be valid.
+    * Additionally, in a bredth-first manner (ensuring that all inputs for any given node are processed before nodes that spend them), it ensures that the root node remains valid according to the rules of the overlay's topic manager,
+    * while considering any previous coins which the Manager had previously indicated were either valid or invalid.
     * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
-    * @throws If the graph is not well-anchored.
+    * @throws If the graph is not well-anchored, according to the rules of Bitcoin or the rules of the Overlay Topic Manager.
     */
   async validateGraphAnchor(graphID: string): Promise<void> {
     // 1. Confirm that we are well anchored (according to the rules of SPV)
@@ -1122,8 +1144,9 @@ export class OverlayGASPStorage implements GASPStorage {
     const validationMap = new Map<string, boolean>()
 
     const validationFunc = async (graphNode: GraphNode): Promise<boolean> => {
-      if (validationMap.has(graphNode.graphID)) {
-        return validationMap.get(graphNode.graphID) || false
+      const dupeCheckNode = validationMap.get(`${graphNode.txid}.${graphNode.outputIndex}`)
+      if (typeof dupeCheckNode !== 'undefined') {
+        return dupeCheckNode
       }
 
       let parsedTx
@@ -1134,31 +1157,37 @@ export class OverlayGASPStorage implements GASPStorage {
         }
       } catch (error) {
         console.error('Error parsing transaction or proof:', error)
+        validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, false)
         return false
       }
 
       const validatedChildren: GraphNode[] = []
       for (const child of graphNode.children) {
-        if (!validationMap.has(child.graphID)) {
+        if (!validationMap.has(`${child.txid}.${child.outputIndex}`)) {
           const isValidChild = await validationFunc(child)
           if (isValidChild) {
             validatedChildren.push(child)
           }
-        } else if (validationMap.get(child.graphID)) {
+        } else {
           validatedChildren.push(child)
         }
       }
 
       let admittanceResult
       try {
-        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), validatedChildren.map(child => child.outputIndex))
+        // Previous coins are input indices corresponding to outputs redeemed.
+        const previousCoins = validatedChildren.map(child =>
+          parsedTx.inputs.findIndex(i => i.sourceOutputIndex === child.outputIndex && i.sourceTXID === child.txid)
+        )
+        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), previousCoins)
       } catch (error) {
         console.error('Error in admittance check:', error)
+        validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, false)
         return false
       }
 
       const isValid = admittanceResult.outputsToAdmit.includes(graphNode.outputIndex)
-      validationMap.set(graphNode.graphID, isValid)
+      validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, isValid)
 
       if (isValid === false) {
         return false
@@ -1172,14 +1201,23 @@ export class OverlayGASPStorage implements GASPStorage {
       return await validationFunc(graphNode.parent)
     }
 
-    const tipNode = this.temporaryGraphNodeRefs[graphID]
-    if (tipNode === undefined) {
+    const rootNode = this.temporaryGraphNodeRefs[graphID]
+    if (rootNode === undefined) {
       throw new Error(`Graph node with ID ${graphID} not found`)
     }
 
-    const isValid = await validationFunc(tipNode)
-    if (!isValid) {
-      throw new Error('The graph is not well-anchored')
+    // First, check the root node is Bitcoin-valid.
+    const beef = this.getBEEFForNode(rootNode)
+    const spvTx = Transaction.fromBEEF(beef)
+    const isBitcoinValid = await spvTx.verify(this.engine.chainTracker)
+    if (!isBitcoinValid) {
+      throw new Error('The graph is not well-anchored according to the rules of Bitcoin.')
+    }
+
+    // Then, ensure the node is Overlay-valid.
+    const isOverlayValid = await validationFunc(rootNode)
+    if (!isOverlayValid) {
+      throw new Error('The graph is not well-anchored according to the rules of this overlay topic.')
     }
   }
 
@@ -1199,7 +1237,7 @@ export class OverlayGASPStorage implements GASPStorage {
 
   /**
    * Finalizes a graph, solidifying the new UTXO and its ancestors so that it will appear in the list of known UTXOs.
-   * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
+   * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the root of this graph.
    */
   async finalizeGraph(graphID: string): Promise<void> {
     // Construct an ordered set of BEEFs for the graph
@@ -1226,9 +1264,12 @@ export class OverlayGASPStorage implements GASPStorage {
         const currentBEEF = this.getBEEFForNode(node)
         beefSet.add(currentBEEF)
         if (node.parent) {
-          hydrator(node.parent)
+          hydrator(node.parent, 'forwards') // We are in forward mode
         }
       }
+    }
+    if (beefSet[beefSet.length - 1].graphID !== graphID) {
+      throw new Error('The last element must be the root node.')
     }
 
     // Start the hydrator with the root node
@@ -1258,7 +1299,7 @@ export class OverlayGASPStorage implements GASPStorage {
       const tx = Transaction.fromHex(node.rawTx)
       if (node.proof) {
         tx.merklePath = MerklePath.fromHex(node.proof)
-        return tx // Transaction with proof, end o the line.
+        return tx // Transaction with proof, end of the line.
       }
       // For each input, look it up and recurse.
       for (const inputIndex in tx.inputs) {

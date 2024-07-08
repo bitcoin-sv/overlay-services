@@ -1199,4 +1199,33 @@ export class OverlayGASPStorage implements GASPStorage {
   async finalizeGraph(graphID: string): Promise<void> {
     // TODO: use similar function as validationFunc to construct the finalized graph with necessary components
   }
+
+  /**
+   * Computes a full BEEF for a given graph node, based on the temporary graph store.
+   * @param node Graph node for which BEEF is needed.
+   * @returns BEEF array, including all proofs on inputs.
+   */
+  private getBEEFForNode(node: GraphNode): number[] {
+    // Given a node, hydrate its merkle proof or all inputs, returning a reference to the hydrated node's Transaction object
+    const hydrator = (node: GraphNode): Transaction => {
+      const tx = Transaction.fromHex(node.rawTx)
+      if (node.proof) {
+        tx.merklePath = MerklePath.fromHex(node.proof)
+        return tx // Transaction with proof, end o the line.
+      }
+      // For each input, look it up and recurse.
+      for (const inputIndex in tx.inputs) {
+        const input = tx.inputs[inputIndex]
+        const foundNode = this.temporaryGraphNodeRefs[`${input.sourceTXID}.${input.sourceOutputIndex}`]
+        if (!foundNode) {
+          throw new Error('Required input node for unproven parent not found in temporary graph store. Ensure, for every parent of any given already-proven node (kept for Overlay-specific historical reasons), that a proof is also provided on those inputs. While implicitly they are valid by virtue of their descendents being proven in the blockchain, BEEF serialization will still fail when winding forward the topical UTXO set histories during sync.')
+        }
+        tx.inputs[inputIndex].sourceTransaction = hydrator(foundNode)
+      }
+      return tx
+    }
+
+    const finalTX = hydrator(node)
+    return finalTX.toBEEF()
+  }
 }

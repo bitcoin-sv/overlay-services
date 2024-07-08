@@ -521,7 +521,7 @@ export class Engine {
       if (Array.isArray(syncEndpoints)) {
         await Promise.all(syncEndpoints.map(async endpoint => {
           // Sync to each host that is associated with this topic
-          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint), 0, `[GASP Sync of ${topic} with ${endpoint}] `, true)
+          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint, topic), 0, `[GASP Sync of ${topic} with ${endpoint}] `, true)
           await gasp.sync()
         }))
       }
@@ -846,7 +846,7 @@ Thus, all non-type exports have been moved to Engine.
 // TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPRemote.ts]-----
 
 export class OverlayGASPRemote implements GASPRemote {
-  constructor(public endpointURL: string) { }
+  constructor(public endpointURL: string, public topic: string) { }
 
   /**
    * Given an outgoing initial request, sends the request to the foreign instance and obtains their initial response.
@@ -861,7 +861,8 @@ export class OverlayGASPRemote implements GASPRemote {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-BSV-Topic': this.topic
       },
       body: JSON.stringify(request)
     })

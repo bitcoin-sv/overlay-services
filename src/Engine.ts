@@ -1202,7 +1202,49 @@ export class OverlayGASPStorage implements GASPStorage {
    * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
    */
   async finalizeGraph(graphID: string): Promise<void> {
-    // TODO: use similar function as validationFunc to construct the finalized graph with necessary components
+    // Construct an ordered set of BEEFs for the graph
+    const beefSet = new Set<number[]>()
+
+    const hydrator = (node: GraphNode, mode: 'backwards' | 'forwards' = 'backwards'): void => {
+      // Crawl backwards until we get to each earliest ancestor
+      if (mode === 'backwards') {
+        if (node.children.length === 0) {
+          // We are at an earliest point, now we can start going forwards
+          hydrator(node, 'forwards')
+        } else {
+          for (const child of node.children) {
+            // Continue backwards to the earliest nodes
+            hydrator(child, 'backwards')
+          }
+        }
+      } else {
+        // From the ancestors, crawl forwards while serializing BEEFs.
+        // Note that efficiency could be vastly improved since high-order (recent) nodes may be done many times.
+        // We'd need to preserve order while using a hash-map, and refusing to process things that are already there.
+        // A Set achieves the same deduplicative result, while redundantly computing the BEEFs — but it preserves a correct order
+        // (no later BEEF before earlier BEEF may ever be processed).
+        const currentBEEF = this.getBEEFForNode(node)
+        beefSet.add(currentBEEF)
+        if (node.parent) {
+          hydrator(node.parent)
+        }
+      }
+    }
+
+    // Start the hydrator with the root node
+    const foundRoot = this.temporaryGraphNodeRefs[graphID]
+    if (!foundRoot) {
+      throw new Error('Unable to find root node in graph for finalization!')
+    }
+    hydrator(foundRoot)
+
+    // Submit all historical BEEFs in order, finalizing the graph for the current UTXO
+    for (const beef of beefSet) {
+      await this.engine.submit({
+        beef,
+        topics: [this.topic]
+      }, () => { }, 'historical-tx')
+    }
   }
 
   /**

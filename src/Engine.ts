@@ -8,7 +8,7 @@ import { STEAK } from './STEAK.js'
 import { LookupQuestion } from './LookupQuestion.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
-import { Transaction, ChainTracker, MerklePath, Broadcaster } from '@bsv/sdk'
+import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
 import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from '@bsv/gasp'
@@ -66,6 +66,14 @@ export class Engine {
     const txid = tx.id('hex')
     const txValid = await tx.verify(this.chainTracker)
     if (!txValid) throw new Error('Unable to verify SPV information.')
+
+    // Broadcast the transaction
+    if (this.broadcaster !== undefined) {
+      const response = await this.broadcaster.broadcast(tx)
+      if (isBroadcastFailure(response)) {
+        throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
+      }
+    }
 
     // Find UTXOs belonging to a particular topic
     const steak: STEAK = {}
@@ -226,11 +234,6 @@ export class Engine {
     // Call the callback function if it is provided
     if (onSteakReady !== undefined) {
       onSteakReady(steak)
-    }
-
-    // Broadcast the transaction
-    if (Object.keys(steak).length > 0 && this.broadcaster !== undefined) {
-      await this.broadcaster.broadcast(tx)
     }
 
     // If we don't have an advertiser, just return the steak

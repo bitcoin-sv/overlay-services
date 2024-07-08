@@ -26,9 +26,9 @@ export class OverlayGASPStorage implements GASPStorage {
   constructor(public topic: string, public engine: Engine, public maxNodesInGraph?: number) { }
 
   /**
-   * 
-   * @param since 
-   * @returns 
+   *
+   * @param since
+   * @returns
    */
   async findKnownUTXOs(since: number): Promise<Array<{ txid: string, outputIndex: number }>> {
     const UTXOs = await this.engine.storage.findUTXOsForTopic(this.topic, since)
@@ -68,7 +68,7 @@ export class OverlayGASPStorage implements GASPStorage {
     parsedTx.merklePath = MerklePath.fromHex(tx.proof)
     const admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), [])
 
-    if (admittanceResult.outputsToAdmit.includes(tx.outputIndex) === true) {
+    if (admittanceResult.outputsToAdmit.includes(tx.outputIndex)) {
       // The transaction is admissible, no further inputs are needed
     } else {
       // The transaction is not admissible, get inputs needed for further verification
@@ -84,7 +84,7 @@ export class OverlayGASPStorage implements GASPStorage {
         try {
           const neededInputs = await this.engine.managers[this.topic].identifyNeededInputs?.(parsedTx.toBEEF()) ?? []
           for (const input of neededInputs) {
-            response.requestedInputs[`${input.txid as string}.${input.outputIndex as number}`] = {
+            response.requestedInputs[`${input.txid}.${input.outputIndex}`] = {
               metadata: false
             }
           }
@@ -141,7 +141,7 @@ export class OverlayGASPStorage implements GASPStorage {
 
       if (parentNode !== undefined) {
         // Set parent-child relationship
-        parentNode.children.push(newGraphNode)
+        parentNode.children.push(newGraphNode) // Maybe just the graphID should be pushed?
         newGraphNode.parent = parentNode
         this.temporaryGraphNodeRefs[tx.graphID] = newGraphNode
       } else {
@@ -161,6 +161,7 @@ export class OverlayGASPStorage implements GASPStorage {
     // 3. If some route that when executed in order to the root node leads to a valid admittance, we are good to go.
     // a) For each node in the chain we need to check topical admittance. For every chain.
     // Take into account previousCoins once you've validated child outputs
+    // TODO: Test call stack implications with many recursive function calls for large graphs.
 
     const validationMap = new Map<string, boolean>()
 
@@ -182,16 +183,13 @@ export class OverlayGASPStorage implements GASPStorage {
 
       const validatedChildren: GraphNode[] = []
       for (const child of graphNode.children) {
-        const childNode = this.temporaryGraphNodeRefs[child.graphID]
-        if (childNode !== undefined) {
-          if (!validationMap.has(childNode.graphID)) {
-            const isValidChild = await validationFunc(childNode)
-            if (isValidChild) {
-              validatedChildren.push(childNode)
-            }
-          } else if (validationMap.get(childNode.graphID)) {
-            validatedChildren.push(childNode)
+        if (!validationMap.has(child.graphID)) {
+          const isValidChild = await validationFunc(child)
+          if (isValidChild) {
+            validatedChildren.push(child)
           }
+        } else if (validationMap.get(child.graphID)) {
+          validatedChildren.push(child)
         }
       }
 
@@ -215,12 +213,7 @@ export class OverlayGASPStorage implements GASPStorage {
         return true
       }
 
-      const parentNode = this.temporaryGraphNodeRefs[graphNode.parent.graphID]
-      if (parentNode === undefined) {
-        console.error('Parent node not found for:', graphNode.graphID)
-        return false
-      }
-      return await validationFunc(parentNode)
+      return await validationFunc(graphNode.parent)
     }
 
     const tipNode = this.temporaryGraphNodeRefs[graphID]

@@ -891,7 +891,7 @@ export class OverlayGASPRemote implements GASPRemote {
    */
   async requestNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
     // Send an HTTP request with the provided info and get back a gaspNode
-    const url = `${this.endpointURL}/requestForeignGASPNode` // Assuming the endpoint is /node, adjust as needed
+    const url = `${this.endpointURL}/requestForeignGASPNode`
     const body = {
       graphID,
       txid,

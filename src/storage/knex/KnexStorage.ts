@@ -59,7 +59,7 @@ export class KnexStorage implements Storage {
   async findUTXOsForTopic(topic: string, since?: number): Promise<Output[]> {
     const query = this.knex('outputs').where({ topic, spent: false })
 
-    // TODO: Create new migration for outputs that adds created_at if necessary.
+    // TODO: Create new migration for outputs that adds either created_at or block height tagging for proven outpoints if necessary.
     // if (since !== undefined) {
     //   const sinceDate = new Date(since).toISOString()
     //   await query.andWhere('created_at', '>=', sinceDate)

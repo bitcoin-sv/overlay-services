@@ -33,16 +33,6 @@
       "import": "./dist/esm/src/storage/*.js",
       "require": "./dist/cjs/src/storage/*.js",
       "types": "./dist/types/src/storage/*.d.ts"
-    },
-      "./GASP": {
-      "import": "./dist/esm/src/GASP/index.js",
-      "require": "./dist/cjs/src/GASP/index.js",
-      "types": "./dist/types/src/GASP/index.d.ts"
-    },
-    "./GASP/*": {
-      "import": "./dist/esm/src/GASP/*.js",
-      "require": "./dist/cjs/src/GASP/*.js",
-      "types": "./dist/types/src/GASP/*.d.ts"
     }
   },
   "scripts": {

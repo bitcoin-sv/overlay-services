@@ -16,7 +16,3 @@ export type { LookupAnswer } from './src/LookupAnswer.js'
 // The Knex storage system
 export { KnexStorage } from './src/storage/knex/KnexStorage.js'
 export * as KnexStorageMigrations from './src/storage/knex/all-migrations.js'
-
-// GASP
-export { OverlayGASPRemote } from "./src/GASP/OverlayGASPRemote.js"
-export { OverlayGASPStorage } from "./src/GASP/OverlayGASPStorage.js"

@@ -516,7 +516,7 @@ export class Engine {
       if (Array.isArray(syncEndpoints)) {
         await Promise.all(syncEndpoints.map(async endpoint => {
           // Sync to each host that is associated with this topic
-          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint), 0, `[${topic} ${endpoint}] `, true)
+          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint), 0, `[GASP Sync of ${topic} with ${endpoint}] `, true)
           await gasp.sync()
         }))
       }

@@ -528,7 +528,7 @@ export class Engine {
    *
    * This method processes an initial synchronization request by finding the relevant UTXOs for the given topic
    * since the provided (TODO: timestamp or block height, we need to decide on sync timing semantics) in the request. It constructs a response that includes a list of these UTXOs
-   * and the timestamp from the initial request.
+   * and the (timestamp or block height, TODO...) from the initial request.
    *
    * @param initialRequest - The GASP initial request containing the version and the timestamp since the last sync.
    * @param topic - The topic for which UTXOs are being requested.

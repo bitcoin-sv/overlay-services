@@ -28,8 +28,8 @@ export class Engine {
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
-   * @param {string} slapTrackers - SAP domains we know to bootstrap the system
-   * @param {Record<string, string[] | 'SHIP'>}
+   * @param {string} slapTrackers - SLAP domains we know to bootstrap the system
+   * @param {Record<string, string[] | 'SHIP'>} syncConfiguration — Configuration object describing historical synchronization of topics.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -516,7 +516,7 @@ export class Engine {
       if (Array.isArray(syncEndpoints)) {
         await Promise.all(syncEndpoints.map(async endpoint => {
           // Sync to each host that is associated with this topic
-          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint), 0, `[${topic} ${endpoint}] `, true)
+          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint), 0, `[GASP Sync of ${topic} with ${endpoint}] `, true)
           await gasp.sync()
         }))
       }
@@ -527,10 +527,10 @@ export class Engine {
    * Given a GASP request, create an initial response.
    *
    * This method processes an initial synchronization request by finding the relevant UTXOs for the given topic
-   * since the provided timestamp in the request. It constructs a response that includes a list of these UTXOs
-   * and the timestamp from the initial request.
+   * since the provided (TODO: timestamp or block height, we need to decide on sync timing semantics) in the request. It constructs a response that includes a list of these UTXOs
+   * and the (timestamp or block height, TODO...) from the initial request.
    *
-   * @param initialRequest - The GASP initial request containing the version and the timestamp since the last sync.
+   * @param initialRequest - The GASP initial request containing the version and the (timestamp or block height, TODO...) since the last sync.
    * @param topic - The topic for which UTXOs are being requested.
    * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided timestamp.
    */
@@ -552,7 +552,7 @@ export class Engine {
    * Provides a GASPNode for the given graphID, transaction ID, and output index.
    *
    * @param graphID - The identifier for the graph to which this node belongs (in the format txid.outputIndex).
-   * @param txid - The transaction ID for the current output.
+   * @param txid - The transaction ID for the requested output from somewhere within the graph's history.
    * @param outputIndex - The index of the output in the transaction.
    * @returns A promise that resolves to a GASPNode containing the raw transaction and other optional data.
    * @throws An error if no output is found for the given transaction ID and output index.
@@ -891,7 +891,7 @@ export class OverlayGASPRemote implements GASPRemote {
    */
   async requestNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
     // Send an HTTP request with the provided info and get back a gaspNode
-    const url = `${this.endpointURL}/requestForeignGASPNode` // Assuming the endpoint is /node, adjust as needed
+    const url = `${this.endpointURL}/requestForeignGASPNode`
     const body = {
       graphID,
       txid,
@@ -1020,6 +1020,7 @@ export class OverlayGASPStorage implements GASPStorage {
       // The transaction is not admissible, get inputs needed for further verification
       // TopicManagers should implement a function to identify which inputs are needed.
       if (this.engine.managers[this.topic] !== undefined && typeof this.engine.managers[this.topic].identifyNeededInputs === 'function') {
+        // In case the topic manager isn't able to stipulate needed inputs, we need to request all inputs as if we had no merkle proof. However, it's dubious that we sometimes don't know — QUESTION: Should we require all topic managers to support this functionality? The alternative to requiring ALL inputs by default is to require NO inputs by default, cutting off the historical graph at this point (e.g. `return undefined`).
         for (const input of parsedTx.inputs) {
           response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
             metadata: false
@@ -1040,6 +1041,7 @@ export class OverlayGASPStorage implements GASPStorage {
         }
       }
     }
+    // Everything else falls through to returning undefined/void, which will terminate the synchronization at this point.
   }
 
   /**

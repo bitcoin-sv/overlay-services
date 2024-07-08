@@ -28,7 +28,7 @@ export class Engine {
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
-   * @param {string} slapTrackers - SAP domains we know to bootstrap the system
+   * @param {string} slapTrackers - SLAP domains we know to bootstrap the system
    * @param {Record<string, string[] | 'SHIP'>} syncConfiguration — Configuration object describing historical synchronization of topics.
    */
   constructor(

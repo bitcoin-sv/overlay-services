@@ -1015,6 +1015,7 @@ export class OverlayGASPStorage implements GASPStorage {
 
     if (admittanceResult.outputsToAdmit.includes(tx.outputIndex)) {
       // The transaction is admissible, no further inputs are needed
+      return
     } else {
       // The transaction is not admissible, get inputs needed for further verification
       // TopicManagers should implement a function to identify which inputs are needed.
@@ -1052,15 +1053,13 @@ export class OverlayGASPStorage implements GASPStorage {
       throw new Error('The max number of nodes in transaction graph has been reached!')
     }
 
+    // TODO: Also throw if graphID is for a graph the recipient does not want (stipulated where?)
+
     const parsedTx = Transaction.fromHex(tx.rawTx)
     const txid = parsedTx.id('hex')
     if (tx.proof !== undefined) {
       parsedTx.merklePath = MerklePath.fromHex(tx.proof)
     }
-
-    // Throw if:
-    // 1. TODO: graphID is for a graph the recipient does not want (stipulated where?)
-    // 2. TODO: The graph has grown to be too large before being finalized (based on some defined limit?)
 
     // Given the passed in node, append to the temp graph
     // Use the spentBy param which should be a txid.inputIndex for the node which spent this one in 36-byte format

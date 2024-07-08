@@ -1057,7 +1057,7 @@ export class OverlayGASPStorage implements GASPStorage {
     // Use the spentBy param which should be a txid.inputIndex for the node which spent this one in 36-byte format
     const newGraphNode: GraphNode = {
       txid,
-      time: Date.now(), // TODO: Determine required format for Time
+      time: 0, // TODO: Determine required format for Time (either block height or timestamp, undefined / Infinity for unconfirmed transactions
       graphID: tx.graphID,
       rawTx: tx.rawTx,
       outputIndex: tx.outputIndex,

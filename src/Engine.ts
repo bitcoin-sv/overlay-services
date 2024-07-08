@@ -552,7 +552,7 @@ export class Engine {
    * Provides a GASPNode for the given graphID, transaction ID, and output index.
    *
    * @param graphID - The identifier for the graph to which this node belongs (in the format txid.outputIndex).
-   * @param txid - The transaction ID for the current output.
+   * @param txid - The transaction ID for the requested output from somewhere within the graph's history.
    * @param outputIndex - The index of the output in the transaction.
    * @returns A promise that resolves to a GASPNode containing the raw transaction and other optional data.
    * @throws An error if no output is found for the given transaction ID and output index.

@@ -1077,7 +1077,7 @@ export class OverlayGASPStorage implements GASPStorage {
 
       if (parentNode !== undefined) {
         // Set parent-child relationship
-        parentNode.children.push(newGraphNode) // Maybe just the graphID should be pushed?
+        parentNode.children.push(newGraphNode)
         newGraphNode.parent = parentNode
         this.temporaryGraphNodeRefs[tx.graphID] = newGraphNode
       } else {

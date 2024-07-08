@@ -1020,14 +1020,6 @@ export class OverlayGASPStorage implements GASPStorage {
       // The transaction is not admissible, get inputs needed for further verification
       // TopicManagers should implement a function to identify which inputs are needed.
       if (this.engine.managers[this.topic] !== undefined && typeof this.engine.managers[this.topic].identifyNeededInputs === 'function') {
-        // In case the topic manager isn't able to stipulate needed inputs, we need to request all inputs as if we had no merkle proof. However, it's dubious that we sometimes don't know — QUESTION: Should we require all topic managers to support this functionality? The alternative to requiring ALL inputs by default is to require NO inputs by default, cutting off the historical graph at this point (e.g. `return undefined`).
-        for (const input of parsedTx.inputs) {
-          response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
-            metadata: false
-          }
-        }
-        return response
-      } else {
         try {
           const neededInputs = await this.engine.managers[this.topic].identifyNeededInputs?.(parsedTx.toBEEF()) ?? []
           for (const input of neededInputs) {
@@ -1038,7 +1030,20 @@ export class OverlayGASPStorage implements GASPStorage {
           return response
         } catch (e) {
           console.error(`An error occurred when identifying needed inputs for transaction: ${parsedTx.id('hex')}.${tx.outputIndex}!`)
+          // Cut off the graph in case of an error here.
+          return
         }
+      } else {
+        // In case the topic manager isn't able to stipulate needed inputs, we need to request all inputs as if we had no merkle proof.
+        // However, it's dubious that we sometimes don't know — QUESTION: Should we require all topic managers to support this functionality?
+        // The alternative to requiring ALL inputs by default is to require NO inputs by default, cutting off the historical graph at this point
+        // (e.g. `return undefined`).
+        for (const input of parsedTx.inputs) {
+          response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
+            metadata: false
+          }
+        }
+        return response
       }
     }
     // Everything else falls through to returning undefined/void, which will terminate the synchronization at this point.

@@ -38,7 +38,7 @@ export interface Storage {
   /**
    * Finds current UTXOs that have been admitted into a given topic
    * @param topic - The topic for which we want to find Unspent Transaction Outputs (UTXOs).
-   * @param since - Optional parameter indicating the minimum date (timestamp) to retrieve matching UTXOs from.
+   * @param since - Optional parameter indicating the minimum date (timestamp? block height?) to retrieve matching UTXOs from. TODO: We need to decide about which time format to use for synchronization.
    * @returns A promise that resolves to an array of matching UTXOs.
    */
   findUTXOsForTopic: (topic: string, since?: number) => Promise<Output[]>

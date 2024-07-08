@@ -530,7 +530,7 @@ export class Engine {
    * since the provided (TODO: timestamp or block height, we need to decide on sync timing semantics) in the request. It constructs a response that includes a list of these UTXOs
    * and the (timestamp or block height, TODO...) from the initial request.
    *
-   * @param initialRequest - The GASP initial request containing the version and the timestamp since the last sync.
+   * @param initialRequest - The GASP initial request containing the version and the (timestamp or block height, TODO...) since the last sync.
    * @param topic - The topic for which UTXOs are being requested.
    * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided timestamp.
    */

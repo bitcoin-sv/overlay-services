@@ -829,7 +829,16 @@ export class Engine {
   }
 }
 
-// TODO: Fix bug with import error ------------------------------------------------------------------------------------------------------
+//////////
+// OTHER FILES
+//////////
+
+/*
+There is currently a bug with the test runner that prevents importing and using files that export variables other than type definitions within implementation files that are not directly imported themselves.
+Thus, all non-type exports have been moved to Engine.
+*/
+
+// TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPRemote.ts]-----
 
 export class OverlayGASPRemote implements GASPRemote {
   constructor(public endpointURL: string) { }
@@ -936,7 +945,7 @@ export class OverlayGASPRemote implements GASPRemote {
   }
 }
 
-// TODO: fix bug with import ---------------------------------------------------------------------------------------------------------------------------
+// TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPStorage.ts]-----
 
 /**
  * Represents a node in the temporary graph.

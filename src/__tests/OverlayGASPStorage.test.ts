@@ -1,10 +1,6 @@
-import { GraphNode, OverlayGASPStorage } from '../GASP/OverlayGASPStorage'
+import { GraphNode, OverlayGASPStorage } from '../Engine'
 import { Transaction, MerklePath } from '@bsv/sdk'
 import { GASPNode } from '@bsv/gasp'
-
-jest.mock('../Engine', () => ({
-  Engine: jest.fn()
-}))
 
 describe('OverlayGASPStorage', () => {
   let overlayStorage: OverlayGASPStorage

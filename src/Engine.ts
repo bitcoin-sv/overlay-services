@@ -1129,45 +1129,54 @@ export class OverlayGASPStorage implements GASPStorage {
     * Checks whether the given graph, in its current state, makes reference only to transactions that are proven in the blockchain, or already known by the recipient to be valid.
     * Additionally, in a breadth-first manner (ensuring that all inputs for any given node are processed before nodes that spend them), it ensures that the root node remains valid according to the rules of the overlay's topic manager,
     * while considering any coins which the Manager had previously indicated were either valid or invalid.
+    * 
+    * 1. Confirm that we are well anchored (according to the rules of SPV)
+    * 2. Is there some sequence of nodes that will result in the admittance of the root node into the topic
+    * 3. If there is some spend chain that, when executed in order to the root node, leads to a valid admittance, we are good to go.
+    *    a) For each node in the chain we need to check topical admittance (such that all relevant inputs to any given node are executed before the node in question).
+    *    b) Once previous nodes are validated, they are taken into account as previous coins to their direct spenders.
+    * 
     * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
     * @throws If the graph is not well-anchored, according to the rules of Bitcoin or the rules of the Overlay Topic Manager.
     */
   async validateGraphAnchor(graphID: string): Promise<void> {
-    // 1. Confirm that we are well anchored (according to the rules of SPV)
-    // 2. Is there some sequence of nodes that will result in the admittance of the root node into the topic
-    // 3. If some route that when executed in order to the root node leads to a valid admittance, we are good to go.
-    // a) For each node in the chain we need to check topical admittance. For every chain.
-    // Take into account previousCoins once you've validated child outputs
-    // TODO: Test call stack implications with many recursive function calls for large graphs.
+    const rootNode = this.temporaryGraphNodeRefs[graphID]
+    if (rootNode === undefined) {
+      throw new Error(`Graph node with ID ${graphID} not found`)
+    }
 
-    const validationMap = new Map<string, boolean>()
+    // Check that the root node is Bitcoin-valid.
+    const beef = this.getBEEFForNode(rootNode)
+    const spvTx = Transaction.fromBEEF(beef)
+    const isBitcoinValid = await spvTx.verify(this.engine.chainTracker)
+    if (!isBitcoinValid) {
+      throw new Error('The graph is not well-anchored according to the rules of Bitcoin.')
+    }
 
-    const validationFunc = async (graphNode: GraphNode): Promise<boolean> => {
+    // Then, ensure the node is Overlay-valid.
+    const validationMap = new Map<string, boolean>() // Tracks historical node validity, avoiding duplication of work
+    const ensureTopicalAnchor = async (graphNode: GraphNode): Promise<boolean> => {
       const dupeCheckNode = validationMap.get(`${graphNode.txid}.${graphNode.outputIndex}`)
       if (typeof dupeCheckNode !== 'undefined') {
         return dupeCheckNode
       }
 
-      let parsedTx
-      try {
-        parsedTx = Transaction.fromHex(graphNode.rawTx)
-        if (graphNode.proof !== undefined) {
-          parsedTx.merklePath = MerklePath.fromHex(graphNode.proof)
-        }
-      } catch (error) {
-        console.error('Error parsing transaction or proof:', error)
-        validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, false)
-        return false
+      // Parse the transaction, adding a proof if we have one
+      const parsedTX = Transaction.fromHex(graphNode.rawTx)
+      if (graphNode.proof !== undefined) {
+        parsedTX.merklePath = MerklePath.fromHex(graphNode.proof)
       }
 
       const validatedChildren: GraphNode[] = []
       for (const child of graphNode.children) {
+        // If the child has not been validated, check it.
         if (!validationMap.has(`${child.txid}.${child.outputIndex}`)) {
-          const isValidChild = await validationFunc(child)
+          const isValidChild = await ensureTopicalAnchor(child)
           if (isValidChild) {
             validatedChildren.push(child)
           }
         } else {
+          // If the child has been validated already, just add it to the list.
           validatedChildren.push(child)
         }
       }
@@ -1176,9 +1185,9 @@ export class OverlayGASPStorage implements GASPStorage {
       try {
         // Previous coins are input indices corresponding to outputs redeemed.
         const previousCoins = validatedChildren.map(child =>
-          parsedTx.inputs.findIndex(i => i.sourceOutputIndex === child.outputIndex && i.sourceTXID === child.txid)
+          parsedTX.inputs.findIndex(i => i.sourceOutputIndex === child.outputIndex && i.sourceTXID === child.txid)
         )
-        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), previousCoins)
+        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTX.toBEEF(), previousCoins)
       } catch (error) {
         console.error('Error in admittance check:', error)
         validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, false)
@@ -1197,24 +1206,9 @@ export class OverlayGASPStorage implements GASPStorage {
         return true
       }
 
-      return await validationFunc(graphNode.parent)
+      return await ensureTopicalAnchor(graphNode.parent)
     }
-
-    const rootNode = this.temporaryGraphNodeRefs[graphID]
-    if (rootNode === undefined) {
-      throw new Error(`Graph node with ID ${graphID} not found`)
-    }
-
-    // First, check the root node is Bitcoin-valid.
-    const beef = this.getBEEFForNode(rootNode)
-    const spvTx = Transaction.fromBEEF(beef)
-    const isBitcoinValid = await spvTx.verify(this.engine.chainTracker)
-    if (!isBitcoinValid) {
-      throw new Error('The graph is not well-anchored according to the rules of Bitcoin.')
-    }
-
-    // Then, ensure the node is Overlay-valid.
-    const isOverlayValid = await validationFunc(rootNode)
+    const isOverlayValid = await ensureTopicalAnchor(rootNode)
     if (!isOverlayValid) {
       throw new Error('The graph is not well-anchored according to the rules of this overlay topic.')
     }

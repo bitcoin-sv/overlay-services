@@ -570,47 +570,66 @@ export class Engine {
    * @throws An error if no output is found for the given transaction ID and output index.
    */
   async provideForeignGASPNode(graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
-    const [rootTxid, rootOutputIndex] = graphID.split('.')
-    const output = await this.storage.findOutput(rootTxid, Number(rootOutputIndex))
+    const hydrator = async (output: Output | null): Promise<GASPNode> => {
+      if (output === undefined || output === null) {
+        throw new Error('No matching output found!')
+      }
 
-    if (output === undefined || output === null) {
-      throw new Error('No matching output found!')
-    }
+      const rootTx = Transaction.fromBEEF(output.beef)
+      let correctTx: Transaction | undefined
 
-    const rootTx = Transaction.fromBEEF(output.beef)
-    let correctTx: Transaction | undefined
-    const searchInput = (tx: Transaction): void => {
-      if (tx.id('hex') === rootTxid) {
-        correctTx = tx
-      } else {
-        // For each input, look it up and recurse.
-        for (const input of tx.inputs) {
-          // We should always have a source transaction
-          if (input.sourceTransaction !== undefined) {
-            searchInput(input.sourceTransaction)
-          } else {
-            throw new Error('Incomplete SPV data!')
+      const searchInput = (tx: Transaction): void => {
+        if (tx.id('hex') === txid) {
+          correctTx = tx
+        } else {
+          // For each input, look it up and recurse.
+          for (const input of tx.inputs) {
+            // We should always have a source transaction
+            if (input.sourceTransaction !== undefined) {
+              searchInput(input.sourceTransaction)
+            } else {
+              throw new Error('Incomplete SPV data!')
+            }
           }
         }
       }
+
+      searchInput(rootTx)
+
+      if (correctTx !== undefined) {
+        const rawTx = correctTx.toHex()
+        const node: GASPNode = {
+          rawTx,
+          graphID,
+          outputIndex
+        }
+        if (correctTx.merklePath !== undefined) {
+          node.proof = correctTx.merklePath.toHex()
+        }
+
+        return node
+      } else {
+        // Recursively try to find a matching output
+        let foundNode: GASPNode | undefined
+        for (const currentOutput of output.outputsConsumed) {
+          try {
+            const outputFound = await this.storage.findOutput(currentOutput.txid, currentOutput.outputIndex)
+            foundNode = await hydrator(outputFound)
+            break
+          } catch (error) {
+            continue
+          }
+        }
+        if (foundNode !== undefined) {
+          return foundNode
+        }
+      }
+      throw new Error('Unable to find output associated with your request!')
     }
 
-    searchInput(rootTx)
-
-    if (correctTx !== undefined) {
-      const rawTx = correctTx.toHex()
-      const node: GASPNode = {
-        rawTx,
-        graphID,
-        outputIndex
-      }
-      if (correctTx.merklePath !== undefined) {
-        node.proof = correctTx.merklePath.toHex()
-      }
-
-      return node
-    }
-    throw new Error('Unable to find ')
+    const [rootTxid, rootOutputIndex] = graphID.split('.')
+    const output = await this.storage.findOutput(rootTxid, Number(rootOutputIndex))
+    return await hydrator(output)
   }
 
   /**

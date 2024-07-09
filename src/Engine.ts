@@ -11,6 +11,8 @@ import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
+import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from '@bsv/gasp'
+import { SyncConfiguration } from './SyncConfiguration.js'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -26,7 +28,8 @@ export class Engine {
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
-   * @param {string} slapTrackers - SAP domains we know to bootstrap the system
+   * @param {string} slapTrackers - SLAP domains we know to bootstrap the system
+   * @param {Record<string, string[] | 'SHIP'>} syncConfiguration — Configuration object describing historical synchronization of topics.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -37,19 +40,22 @@ export class Engine {
     public shipTrackers?: string[],
     public slapTrackers?: string[],
     public broadcaster?: Broadcaster,
-    public advertiser?: Advertiser
-  ) { }
+    public advertiser?: Advertiser,
+    public syncConfiguration?: SyncConfiguration
+  ) {
+  }
 
   /**
    * Submits a transaction for processing by Overlay Services.
    * @param {TaggedBEEF} taggedBEEF - The transaction to process
    * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
+   * @param {string} mode — Indicates the submission behavior, whether historical or current. Historical transactions are not broadcast or propagated.
    * 
    * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
    * 
    * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
-  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void): Promise<STEAK> {
+  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx'): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
       if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)
@@ -58,11 +64,11 @@ export class Engine {
     // Validate the transaction SPV information
     const tx = Transaction.fromBEEF(taggedBEEF.beef)
     const txid = tx.id('hex')
-    const txValid = await tx.verify(this.chainTracker)
+    const txValid = await tx.verify(this.chainTracker) // Note: also verifying historical-tx with SPV. Needed?
     if (!txValid) throw new Error('Unable to verify SPV information.')
 
-    // Broadcast the transaction
-    if (this.broadcaster !== undefined) {
+    // Broadcast the transaction if not historical and broadcaster is configured
+    if (mode !== 'historical-tx' && this.broadcaster !== undefined) {
       const response = await this.broadcaster.broadcast(tx)
       if (isBroadcastFailure(response)) {
         throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
@@ -226,12 +232,13 @@ export class Engine {
     }
 
     // Call the callback function if it is provided
-    if (onSteakReady) {
+    // TODO: To call `onSteakReady` sooner, we could have two loops. First we figure out topical admittance only, then we call `onSteakReeady` and do everything else after the first loop.
+    if (onSteakReady !== undefined) {
       onSteakReady(steak)
     }
 
-    // If we don't have an advertiser, just return the steak
-    if (this.advertiser === undefined) {
+    // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
+    if (this.advertiser === undefined || mode === 'historical-tx') {
       return steak
     }
 
@@ -461,6 +468,120 @@ export class Engine {
         console.error('Failed to revoke SLAP advertisement:', error)
       }
     }
+  }
+
+  /**
+   * This method goes through each topic that we support syncing and attempts to sync with each endpoint
+   * associated with that topic. If the sync configuration is 'SHIP', it will sync to all peers that support
+   * the topic.
+   *
+   * @throws Error if the overlay service engine is not configured for topical synchronization.
+   */
+  async startGASPSync(): Promise<void> {
+    if (this.syncConfiguration === undefined) {
+      throw new Error('Overlay Service Engine not configured for topical synchronization!')
+    }
+
+    for (const topic of Object.keys(this.syncConfiguration)) {
+      // Make sure syncEndpoints is an array or SHIP
+      let syncEndpoints: string[] | string = this.syncConfiguration[topic]
+
+      if (syncEndpoints === 'SHIP') {
+        // Perform lookup and find ship advertisements to set syncEndpoints for topic
+        const lookupAnswer = await this.lookup({
+          service: 'ls_ship',
+          query: {
+            topic
+          }
+        })
+
+        // Lookup will currently always return type output-list
+        if (lookupAnswer.type === 'output-list') {
+          const endpointSet = new Set<string>()
+
+          lookupAnswer.outputs.forEach(output => {
+            try {
+              // Parse out the advertisements using the provided parser
+              const tx = Transaction.fromBEEF(output.beef)
+              const advertisement = this.advertiser?.parseAdvertisement(tx.outputs[output.outputIndex].lockingScript)
+              if (advertisement !== undefined && advertisement !== null && advertisement.protocol === 'SHIP') {
+                endpointSet.add(advertisement.domain)
+              }
+            } catch (error) {
+              console.error('Failed to parse advertisement output:', error)
+            }
+          })
+
+          syncEndpoints = Array.from(endpointSet)
+        }
+      }
+
+      // Now syncEndpoints is guaranteed to be an array of strings without duplicates
+      // Note: Consider MySQL DB locking implications when running synchronization in parallel
+      if (Array.isArray(syncEndpoints)) {
+        await Promise.all(syncEndpoints.map(async endpoint => {
+          // Sync to each host that is associated with this topic
+          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint, topic), 0, `[GASP Sync of ${topic} with ${endpoint}] `, true)
+          await gasp.sync()
+        }))
+      }
+    }
+  }
+
+  /**
+   * Given a GASP request, create an initial response.
+   *
+   * This method processes an initial synchronization request by finding the relevant UTXOs for the given topic
+   * since the provided (TODO: timestamp or block height, we need to decide on sync timing semantics) in the request. It constructs a response that includes a list of these UTXOs
+   * and the (timestamp or block height, TODO...) from the initial request.
+   *
+   * @param initialRequest - The GASP initial request containing the version and the (timestamp or block height, TODO...) since the last sync.
+   * @param topic - The topic for which UTXOs are being requested.
+   * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided timestamp.
+   */
+  async provideForeignSyncResponse(initialRequest: GASPInitialRequest, topic: string): Promise<GASPInitialResponse> {
+    const UTXOs = await this.storage.findUTXOsForTopic(topic, initialRequest.since)
+
+    return {
+      UTXOList: UTXOs.map(output => {
+        return {
+          txid: output.txid,
+          outputIndex: output.outputIndex
+        }
+      }),
+      since: initialRequest.since
+    }
+  }
+
+  /**
+   * Provides a GASPNode for the given graphID, transaction ID, and output index.
+   *
+   * @param graphID - The identifier for the graph to which this node belongs (in the format txid.outputIndex).
+   * @param txid - The transaction ID for the requested output from somewhere within the graph's history.
+   * @param outputIndex - The index of the output in the transaction.
+   * @returns A promise that resolves to a GASPNode containing the raw transaction and other optional data.
+   * @throws An error if no output is found for the given transaction ID and output index.
+   */
+  async provideForeignGASPNode(graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
+    const output = await this.storage.findOutput(txid, outputIndex)
+
+    if (output === undefined || output === null) {
+      throw new Error('No matching output found!')
+    }
+
+    const tx = Transaction.fromBEEF(output.beef)
+    const rawTx = tx.toHex()
+
+    const node: GASPNode = {
+      rawTx,
+      graphID,
+      outputIndex
+    }
+    if (tx.merklePath !== undefined) {
+      node.proof = tx.merklePath.toHex()
+    }
+
+    return node
   }
 
   /**
@@ -710,5 +831,464 @@ export class Engine {
   async getDocumentationForLookupServiceProvider(provider: any): Promise<string> {
     const documentation = await this.lookupServices[provider]?.getDocumentation?.()
     return documentation !== undefined ? documentation : 'No documentation found!'
+  }
+}
+
+//////////
+// OTHER FILES
+//////////
+
+/*
+There is currently a bug with the test runner that prevents importing and using files that export variables other than type definitions within implementation files that are not directly imported themselves.
+Thus, all non-type exports have been moved to Engine.
+*/
+
+// TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPRemote.ts]-----
+
+export class OverlayGASPRemote implements GASPRemote {
+  constructor(public endpointURL: string, public topic: string) { }
+
+  /**
+   * Given an outgoing initial request, sends the request to the foreign instance and obtains their initial response.
+   * @param request
+   * @returns
+   */
+  async getInitialResponse(request: GASPInitialRequest): Promise<GASPInitialResponse> {
+    // Send out an HTTP request to the URL (current host for topic)
+    // Include the topic in the request
+    // Parse out response and return correct format
+    const url = `${this.endpointURL}/requestSyncResponse`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-BSV-Topic': this.topic
+      },
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`)
+    }
+
+    const result: GASPInitialResponse = await response.json()
+
+    // Validate and return the response in the correct format
+    if (!Array.isArray(result.UTXOList) || typeof result.since !== 'number') {
+      throw new Error('Invalid response format')
+    }
+
+    return {
+      UTXOList: result.UTXOList.map((utxo: any) => ({
+        txid: utxo.txid,
+        outputIndex: utxo.outputIndex
+      })),
+      since: result.since
+    }
+  }
+
+  /**
+   * Given an outgoing txid, outputIndex and optional metadata, request the associated GASP node from the foreign instance.
+   * @param graphID
+   * @param txid
+   * @param outputIndex
+   * @param metadata
+   * @returns
+   */
+  async requestNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
+    // Send an HTTP request with the provided info and get back a gaspNode
+    const url = `${this.endpointURL}/requestForeignGASPNode`
+    const body = {
+      graphID,
+      txid,
+      outputIndex,
+      metadata
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    // Validate and return the response in the correct format
+    if (typeof result.graphID !== 'string' || typeof result.rawTx !== 'string' || typeof result.outputIndex !== 'number') {
+      throw new Error('Invalid response format')
+    }
+
+    const gaspNode: GASPNode = {
+      graphID: result.graphID,
+      rawTx: result.rawTx,
+      outputIndex: result.outputIndex,
+      proof: result.proof,
+      txMetadata: result.txMetadata,
+      outputMetadata: result.outputMetadata,
+      inputs: result.inputs
+    }
+
+    return gaspNode
+  }
+
+  // ---- Now optional methods ----
+
+  // When are only syncing to them
+  async getInitialReply(response: GASPInitialResponse): Promise<GASPInitialReply> {
+    throw new Error('Function not supported!')
+  }
+
+  // Only used when supporting bidirectional sync.
+  // Overlay services does not support this.
+  async submitNode(node: GASPNode): Promise<void | GASPNodeResponse> {
+    throw new Error('Node submission not supported!')
+  }
+}
+
+// TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPStorage.ts]-----
+
+/**
+ * Represents a node in the temporary graph.
+ */
+export interface GraphNode {
+  txid: string
+  time: number
+  graphID: string
+  rawTx: string
+  outputIndex: number
+  spentBy?: string
+  proof?: string
+  txMetadata?: string
+  outputMetadata?: string
+  inputs?: Record<string, { hash: string }> | undefined
+  children: GraphNode[]
+  parent?: GraphNode
+}
+
+export class OverlayGASPStorage implements GASPStorage {
+  readonly temporaryGraphNodeRefs: Record<string, GraphNode> = {}
+
+  constructor(public topic: string, public engine: Engine, public maxNodesInGraph?: number) { }
+
+  /**
+   *
+   * @param since
+   * @returns
+   */
+  async findKnownUTXOs(since: number): Promise<Array<{ txid: string, outputIndex: number }>> {
+    const UTXOs = await this.engine.storage.findUTXOsForTopic(this.topic, since)
+    return UTXOs.map(output => ({
+      txid: output.txid,
+      outputIndex: output.outputIndex
+    }))
+  }
+
+  // TODO: Consider optionality on interface
+  async hydrateGASPNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
+    throw new Error('GASP node hydration Not supported!')
+  }
+
+  /**
+  * For a given node, returns the inputs needed to complete the graph, including whether updated metadata is requested for those inputs.
+  * @param tx The node for which needed inputs should be found.
+  * @returns A promise for a mapping of requested input transactions and whether metadata should be provided for each.
+  */
+  async findNeededInputs(tx: GASPNode): Promise<GASPNodeResponse | undefined> {
+    // If there is no Merkle proof, we always need the inputs
+    const response: GASPNodeResponse = {
+      requestedInputs: {}
+    }
+    const parsedTx = Transaction.fromHex(tx.rawTx)
+    if (tx.proof === undefined) {
+      for (const input of parsedTx.inputs) {
+        response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
+          metadata: false
+        }
+      }
+
+      return await this.stripAlreadyKnownInputs(response)
+    }
+
+    // Attempt to check if the current transaction is admissible
+    parsedTx.merklePath = MerklePath.fromHex(tx.proof)
+    const admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), [])
+
+    if (admittanceResult.outputsToAdmit.includes(tx.outputIndex)) {
+      // The transaction is admissible, no further inputs are needed
+      return
+    } else {
+      // The transaction is not admissible, get inputs needed for further verification
+      // TopicManagers should implement a function to identify which inputs are needed.
+      if (this.engine.managers[this.topic] !== undefined && typeof this.engine.managers[this.topic].identifyNeededInputs === 'function') {
+        try {
+          const neededInputs = await this.engine.managers[this.topic].identifyNeededInputs?.(parsedTx.toBEEF()) ?? []
+          for (const input of neededInputs) {
+            response.requestedInputs[`${input.txid}.${input.outputIndex}`] = {
+              metadata: false
+            }
+          }
+          return await this.stripAlreadyKnownInputs(response)
+        } catch (e) {
+          console.error(`An error occurred when identifying needed inputs for transaction: ${parsedTx.id('hex')}.${tx.outputIndex}!`)
+          // Cut off the graph in case of an error here.
+          return
+        }
+      } else {
+        // In case the topic manager isn't able to stipulate needed inputs, we need to request all inputs as if we had no merkle proof.
+        // However, it's dubious that we sometimes don't know — QUESTION: Should we require all topic managers to support this functionality?
+        // The alternative to requiring ALL inputs by default is to require NO inputs by default, cutting off the historical graph at this point
+        // (e.g. `return undefined`).
+        for (const input of parsedTx.inputs) {
+          response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
+            metadata: false
+          }
+        }
+        return await this.stripAlreadyKnownInputs(response)
+      }
+    }
+    // Everything else falls through to returning undefined/void, which will terminate the synchronization at this point.
+  }
+
+  /**
+   * Ensures that no inputs are requested from foreign nodes before sending any GASP response
+   * Also terminates graphs if the response would be empty.
+   */
+  private async stripAlreadyKnownInputs(response: GASPNodeResponse | undefined): Promise<GASPNodeResponse | undefined> {
+    if (typeof response === 'undefined') {
+      return response
+    }
+    for (const inputNodeId of Object.keys(response.requestedInputs)) {
+      const [txid, outputIndex] = inputNodeId.split('.')
+      const found = await this.engine.storage.findOutput(txid, Number(outputIndex), this.topic)
+      if (found) {
+        delete response.requestedInputs[inputNodeId]
+      }
+    }
+    if (Object.keys(response.requestedInputs).length === 0) {
+      return undefined
+    }
+  }
+
+  /**
+  * Appends a new node to a temporary graph.
+  * @param tx The node to append to this graph.
+  * @param spentBy Unless this is the same node identified by the graph ID, denotes the TXID and input index for the node which spent this one, in 36-byte format.
+  * @throws If the node cannot be appended to the graph, either because the graph ID is for a graph the recipient does not want or because the graph has grown to be too large before being finalized.
+  */
+  async appendToGraph(tx: GASPNode, spentBy?: string | undefined): Promise<void> {
+    if (this.maxNodesInGraph !== undefined && Object.keys(this.temporaryGraphNodeRefs).length >= this.maxNodesInGraph) {
+      throw new Error('The max number of nodes in transaction graph has been reached!')
+    }
+
+    const parsedTx = Transaction.fromHex(tx.rawTx)
+    const txid = parsedTx.id('hex')
+    if (tx.proof !== undefined) {
+      parsedTx.merklePath = MerklePath.fromHex(tx.proof)
+    }
+
+    // Given the passed in node, append to the temp graph
+    // Use the spentBy param which should be a txid.inputIndex for the node which spent this one in 36-byte format
+    const newGraphNode: GraphNode = {
+      txid,
+      time: 0, // TODO: Determine required format for Time (either block height or timestamp, undefined / Infinity for unconfirmed transactions
+      graphID: tx.graphID,
+      rawTx: tx.rawTx,
+      outputIndex: tx.outputIndex,
+      proof: tx.proof,
+      txMetadata: tx.txMetadata,
+      outputMetadata: tx.outputMetadata,
+      inputs: tx.inputs,
+      children: []
+    }
+
+    // If spentBy is undefined, then we know it's the root node.
+    if (spentBy === undefined) {
+      this.temporaryGraphNodeRefs[tx.graphID] = newGraphNode
+    } else {
+      // Find the parent node based on spentBy
+      const parentNode = this.temporaryGraphNodeRefs[spentBy]
+
+      if (parentNode !== undefined) {
+        // Set parent-child relationship
+        parentNode.children.push(newGraphNode)
+        newGraphNode.parent = parentNode
+        this.temporaryGraphNodeRefs[`${newGraphNode.txid}.${newGraphNode.outputIndex}`] = newGraphNode
+      } else {
+        throw new Error(`Parent node with GraphID ${spentBy} not found`)
+      }
+    }
+  }
+
+  /**
+    * Checks whether the given graph, in its current state, makes reference only to transactions that are proven in the blockchain, or already known by the recipient to be valid.
+    * Additionally, in a breadth-first manner (ensuring that all inputs for any given node are processed before nodes that spend them), it ensures that the root node remains valid according to the rules of the overlay's topic manager,
+    * while considering any coins which the Manager had previously indicated were either valid or invalid.
+    * 
+    * 1. Confirm that we are well anchored (according to the rules of SPV)
+    * 2. Is there some sequence of nodes that will result in the admittance of the root node into the topic
+    * 3. If there is some spend chain that, when executed in order to the root node, leads to a valid admittance, we are good to go.
+    *    a) For each node in the chain we need to check topical admittance (such that all relevant inputs to any given node are executed before the node in question).
+    *    b) Once previous nodes are validated, they are taken into account as previous coins to their direct spenders.
+    * 
+    * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
+    * @throws If the graph is not well-anchored, according to the rules of Bitcoin or the rules of the Overlay Topic Manager.
+    */
+  async validateGraphAnchor(graphID: string): Promise<void> {
+    const rootNode = this.temporaryGraphNodeRefs[graphID]
+    if (rootNode === undefined) {
+      throw new Error(`Graph node with ID ${graphID} not found`)
+    }
+
+    // Check that the root node is Bitcoin-valid.
+    const beef = this.getBEEFForNode(rootNode)
+    const spvTx = Transaction.fromBEEF(beef)
+    const isBitcoinValid = await spvTx.verify(this.engine.chainTracker)
+    if (!isBitcoinValid) {
+      throw new Error('The graph is not well-anchored according to the rules of Bitcoin.')
+    }
+
+    // Then, ensure the node is Overlay-valid.
+    const validationMap = new Map<string, boolean>() // Tracks historical node validity, avoiding duplication of work
+    const ensureTopicalAnchor = async (graphNode: GraphNode): Promise<boolean> => {
+      const dupeCheckNode = validationMap.get(`${graphNode.txid}.${graphNode.outputIndex}`)
+      if (typeof dupeCheckNode !== 'undefined') {
+        return dupeCheckNode
+      }
+
+      // Parse the transaction, adding a proof if we have one
+      const parsedTX = Transaction.fromHex(graphNode.rawTx)
+      if (graphNode.proof !== undefined) {
+        parsedTX.merklePath = MerklePath.fromHex(graphNode.proof)
+      }
+
+      const validatedChildren: GraphNode[] = []
+      for (const child of graphNode.children) {
+        // If the child has not been validated, check it.
+        if (!validationMap.has(`${child.txid}.${child.outputIndex}`)) {
+          const isValidChild = await ensureTopicalAnchor(child)
+          if (isValidChild) {
+            validatedChildren.push(child)
+          }
+        } else {
+          // If the child has been validated already, just add it to the list.
+          validatedChildren.push(child)
+        }
+      }
+
+      let admittanceResult
+      try {
+        // Previous coins are input indices corresponding to outputs redeemed.
+        const previousCoins = validatedChildren.map(child =>
+          parsedTX.inputs.findIndex(i => i.sourceOutputIndex === child.outputIndex && i.sourceTXID === child.txid)
+        )
+        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTX.toBEEF(), previousCoins)
+      } catch (error) {
+        console.error('Error in admittance check:', error)
+        validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, false)
+        return false
+      }
+
+      const isValid = admittanceResult.outputsToAdmit.includes(graphNode.outputIndex)
+      validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, isValid)
+
+      if (isValid === false) {
+        return false
+      }
+
+      // Reached the root successfully
+      if (graphNode.parent === undefined) {
+        return true
+      }
+
+      return await ensureTopicalAnchor(graphNode.parent)
+    }
+    const isOverlayValid = await ensureTopicalAnchor(rootNode)
+    if (!isOverlayValid) {
+      throw new Error('The graph is not well-anchored according to the rules of this overlay topic.')
+    }
+  }
+
+  /**
+   * Deletes all data associated with a temporary graph that has failed to sync, if the graph exists.
+   * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
+   */
+  async discardGraph(graphID: string): Promise<void> {
+    for (const [nodeId, graphRef] of Object.entries(this.temporaryGraphNodeRefs)) {
+      if (graphRef.graphID === graphID) {
+        // Delete child node
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        delete this.temporaryGraphNodeRefs[nodeId]
+      }
+    }
+  }
+
+  /**
+   * Finalizes a graph, solidifying the new UTXO and its ancestors so that it will appear in the list of known UTXOs.
+   * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the root of this graph.
+   */
+  async finalizeGraph(graphID: string): Promise<void> {
+    // Construct an ordered set of BEEFs for the graph
+    const beefs: number[][] = []
+    const hydrator = (node: GraphNode): void => {
+      const currentBEEF = this.getBEEFForNode(node)
+      if (beefs.indexOf(currentBEEF) === -1) {
+        beefs.unshift(currentBEEF)
+      }
+
+      for (const child of node.children) {
+        // Continue backwards to the earliest nodes, adding them onto the beginning
+        hydrator(child)
+      }
+    }
+
+    // Start the hydrator with the root node
+    const foundRoot = this.temporaryGraphNodeRefs[graphID]
+    if (!foundRoot) {
+      throw new Error('Unable to find root node in graph for finalization!')
+    }
+    hydrator(foundRoot)
+
+    // Submit all historical BEEFs in order, finalizing the graph for the current UTXO
+    for (const beef of beefs) {
+      await this.engine.submit({
+        beef,
+        topics: [this.topic]
+      }, () => { }, 'historical-tx')
+    }
+  }
+
+  /**
+   * Computes a full BEEF for a given graph node, based on the temporary graph store.
+   * @param node Graph node for which BEEF is needed.
+   * @returns BEEF array, including all proofs on inputs.
+   */
+  private getBEEFForNode(node: GraphNode): number[] {
+    // Given a node, hydrate its merkle proof or all inputs, returning a reference to the hydrated node's Transaction object
+    const hydrator = (node: GraphNode): Transaction => {
+      const tx = Transaction.fromHex(node.rawTx)
+      if (node.proof) {
+        tx.merklePath = MerklePath.fromHex(node.proof)
+        return tx // Transaction with proof, end of the line.
+      }
+      // For each input, look it up and recurse.
+      for (const inputIndex in tx.inputs) {
+        const input = tx.inputs[inputIndex]
+        const foundNode = this.temporaryGraphNodeRefs[`${input.sourceTXID}.${input.sourceOutputIndex}`]
+        if (!foundNode) {
+          throw new Error('Required input node for unproven parent not found in temporary graph store. Ensure, for every parent of any given already-proven node (kept for Overlay-specific historical reasons), that a proof is also provided on those inputs. While implicitly they are valid by virtue of their descendents being proven in the blockchain, BEEF serialization will still fail when winding forward the topical UTXO set histories during sync.')
+        }
+        tx.inputs[inputIndex].sourceTransaction = hydrator(foundNode)
+      }
+      return tx
+    }
+
+    const finalTX = hydrator(node)
+    return finalTX.toBEEF()
   }
 }

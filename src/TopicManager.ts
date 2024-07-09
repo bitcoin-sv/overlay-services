@@ -12,6 +12,12 @@ export interface TopicManager {
   identifyAdmissibleOutputs: (beef: number[], previousCoins: number[]) => Promise<AdmittanceInstructions>
 
   /**
+   * Identifies and returns the inputs needed to anchor any topical outputs from this transaction to their associated previous history.
+   * @throws - if there are no potentially valid topical outputs in this transaction
+   */
+  identifyNeededInputs?: (beef: number[]) => Promise<Array<{ txid: string, outputIndex: number }>>
+
+  /**
   * Returns a Markdown-formatted documentation string for the topic manager.
   */
   getDocumentation: () => Promise<string>

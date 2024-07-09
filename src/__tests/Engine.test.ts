@@ -14,7 +14,7 @@ const BRC62Hex = '0100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f
 const exampleTX = Transaction.fromHexBEEF(BRC62Hex)
 
 const exampleBeef = exampleTX.toBEEF()
-const exampleTXID = exampleTX.id('hex') as string
+const exampleTXID = exampleTX.id('hex')
 const examplePreviousTXID = '3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac'
 let mockTopicManager: TopicManager, mockLookupService: LookupService, mockStorageEngine: Storage
 const mockOutput: Output = {
@@ -22,7 +22,7 @@ const mockOutput: Output = {
   outputIndex: 0,
   outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
   topic: 'hello',
-  satoshis: exampleTX.outputs[0].satoshis as number,
+  satoshis: exampleTX.outputs[0].satoshis,
   beef: exampleBeef,
   spent: false,
   outputsConsumed: [],
@@ -60,32 +60,33 @@ describe('BSV Overlay Services Engine', () => {
       markUTXOAsSpent: jest.fn(),
       updateConsumedBy: jest.fn(),
       updateOutputBeef: jest.fn(),
-      deleteOutput: jest.fn()
+      deleteOutput: jest.fn(),
+      findUTXOsForTopic: jest.fn()
     }
   })
   describe('handleNewMerkleProof tests', () => {
-const mockOutput: Output = {
-  txid: exampleTXID,
-  outputIndex: 0,
-  outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
-  topic: 'hello',
-  satoshis: exampleTX.outputs[0].satoshis as number,
-  beef: exampleBeef,
-  spent: false,
-  outputsConsumed: [],
-  consumedBy: []
-}
+    const mockOutput: Output = {
+      txid: exampleTXID,
+      outputIndex: 0,
+      outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
+      topic: 'hello',
+      satoshis: exampleTX.outputs[0].satoshis,
+      beef: exampleBeef,
+      spent: false,
+      outputsConsumed: [],
+      consumedBy: []
+    }
     it('0 simple proof', async () => {
       const beef = beef27c8f_1
       const txid = txid27c8f
       const tx = Transaction.fromHexBEEF(beef)
 
       const output27c8f_0: Output = {
-        txid: txid,
+        txid,
         outputIndex: 0,
         outputScript: tx.outputs[0].lockingScript.toBinary(),
         topic: 'hello',
-        satoshis: tx.outputs[0].satoshis as number,
+        satoshis: tx.outputs[0].satoshis,
         beef: tx.toBEEF(),
         spent: false,
         outputsConsumed: [],
@@ -93,7 +94,7 @@ const mockOutput: Output = {
       }
 
       mockLookupService.lookup = jest.fn(async () => [{
-        txid: txid,
+        txid,
         outputIndex: 0,
         history: 1
       }])
@@ -115,26 +116,26 @@ const mockOutput: Output = {
       )
 
       const merklePath = Transaction.fromHexBEEF(beef27c8f_0).merklePath
-      if (!merklePath) throw('improper test setup')
+      if (!merklePath) throw ('improper test setup')
       await engine.handleNewMerkleProof(txid, merklePath)
       expect(newBEEF.length > 0 && newBEEF.length < beef.length / 2).toBe(true)
     })
 
     it('1 recurse proof', async () => {
       const outputs: Output[] = []
-      const findOutput = (txid: string, outputIndex: number) : Output => {
+      const findOutput = (txid: string, outputIndex: number): Output => {
         const i = outputs.findIndex(o => o.txid === txid && o.outputIndex === outputIndex)
         if (i < 0) throw new Error(`missing output ${txid} ${outputIndex}`)
         return outputs[i]
       }
 
-      const addConsumingOutput = (tx: Transaction, outputIndex: number, consumes?: Output) : Output => {
+      const addConsumingOutput = (tx: Transaction, outputIndex: number, consumes?: Output): Output => {
         const o: Output = {
           txid: tx.id('hex'),
           outputIndex,
           outputScript: tx.outputs[outputIndex].lockingScript.toBinary(),
           topic: 'hello',
-          satoshis: tx.outputs[outputIndex].satoshis as number,
+          satoshis: tx.outputs[outputIndex].satoshis,
           beef: tx.toBEEF(),
           spent: false,
           outputsConsumed: [],
@@ -150,7 +151,7 @@ const mockOutput: Output = {
       }
 
       mockLookupService.lookup = jest.fn(async () => [{ txid: txid17d182, outputIndex: 0, history: 1 }])
-      let newBEEF: Record<string, string> = {}
+      const newBEEF: Record<string, string> = {}
       mockStorageEngine.findOutput = jest.fn(async (txid: string, outputIndex: number, topic?: string, spent?: boolean) => {
         return findOutput(txid, outputIndex)
       })
@@ -161,12 +162,12 @@ const mockOutput: Output = {
       mockStorageEngine.updateOutputBeef = jest.fn(async (txid: string, outputIndex: number, topic: string, beef: number[]) => {
         newBEEF[`${txid}_${outputIndex}`] = Utils.toHex(beef)
       })
-      const engine = new Engine( { Hello: mockTopicManager }, { Hello: mockLookupService }, mockStorageEngine, mockChainTracker)
+      const engine = new Engine({ Hello: mockTopicManager }, { Hello: mockLookupService }, mockStorageEngine, mockChainTracker)
 
       /*
         txid 17d1829ba8424b97369ee8b528ee8b65d9d4b9c08d037d224a7be7c025f78f78 output 0 1196 sats
           txid 9426201003b01e5bb66e9240a1cc337174238e816a25a06ba532fa67af4457d7 output 0 1197 sats
-            txid 509f5ef79c18504fdfe21e67608f56bacb8d8a200634e46f60a9dc8430dcd6e9 output 0 1198 sats 
+            txid 509f5ef79c18504fdfe21e67608f56bacb8d8a200634e46f60a9dc8430dcd6e9 output 0 1198 sats
               txid 877734db8eb917d0e2174a4bdddc085b34f67cedd6b94628c4feb1b979a2b2c5 output 0 1199 sats
                 txid 37abad7168d47d4e107d0f9f96813a4feef6ea346482fce554c3fade85d45409 output 0 1200 sats
                   txid d786db393ec7f1315bee2cbd3aa47634394f57c861feed8c075563308f14c237 output 0 1568 sats
@@ -174,22 +175,22 @@ const mockOutput: Output = {
       */
 
       const tx17d182 = Transaction.fromHexBEEF(beef17d182_4)
-      const tx942620 = tx17d182.inputs[0].sourceTransaction!
-      const tx509f5e = tx942620.inputs[0].sourceTransaction!
-      const tx877734 = tx509f5e.inputs[0].sourceTransaction!
-      const tx37abad = tx877734.inputs[0].sourceTransaction!
+      const tx942620 = tx17d182.inputs[0].sourceTransaction
+      const tx509f5e = tx942620.inputs[0].sourceTransaction
+      const tx877734 = tx509f5e.inputs[0].sourceTransaction
+      const tx37abad = tx877734.inputs[0].sourceTransaction
 
       const output37abad_0 = addConsumingOutput(tx37abad, 0)
       const output877734_0 = addConsumingOutput(tx877734, 0, output37abad_0)
       const output509f5e_0 = addConsumingOutput(tx509f5e, 0, output877734_0)
       const output942620_0 = addConsumingOutput(tx942620, 0, output509f5e_0)
       const output17d182_0 = addConsumingOutput(tx17d182, 0, output942620_0)
-      
-      const mp37abad = Transaction.fromHexBEEF(beef37abad_0).merklePath!
+
+      const mp37abad = Transaction.fromHexBEEF(beef37abad_0).merklePath
       await engine.handleNewMerkleProof(txid37abad, mp37abad)
       expect(Object.keys(newBEEF).length).toBe(0)
 
-      const mp877734 = Transaction.fromHexBEEF(beef877734_0).merklePath!
+      const mp877734 = Transaction.fromHexBEEF(beef877734_0).merklePath
       await engine.handleNewMerkleProof(txid877734, mp877734)
       expect(newBEEF[`${txid877734}_0`]).toBe(beef877734_0)
       expect(newBEEF[`${txid509f5e}_0`].length).toBeGreaterThan(beef509f5e_0.length)
@@ -197,7 +198,7 @@ const mockOutput: Output = {
       expect(newBEEF[`${txid17d182}_0`].length).toBeGreaterThan(beef17d182_0.length)
       expect(Object.keys(newBEEF).length).toBe(4)
 
-      const mp509f5e = Transaction.fromHexBEEF(beef509f5e_0).merklePath!
+      const mp509f5e = Transaction.fromHexBEEF(beef509f5e_0).merklePath
       await engine.handleNewMerkleProof(txid509f5e, mp509f5e)
       expect(newBEEF[`${txid877734}_0`]).toBe(beef877734_0)
       expect(newBEEF[`${txid509f5e}_0`]).toBe(beef509f5e_0)
@@ -205,7 +206,7 @@ const mockOutput: Output = {
       expect(newBEEF[`${txid17d182}_0`].length).toBeGreaterThan(beef17d182_0.length)
       expect(Object.keys(newBEEF).length).toBe(4)
 
-      const mp942620 = Transaction.fromHexBEEF(beef942620_0).merklePath!
+      const mp942620 = Transaction.fromHexBEEF(beef942620_0).merklePath
       await engine.handleNewMerkleProof(txid942620, mp942620)
       expect(newBEEF[`${txid877734}_0`]).toBe(beef877734_0)
       expect(newBEEF[`${txid509f5e}_0`]).toBe(beef509f5e_0)
@@ -213,7 +214,7 @@ const mockOutput: Output = {
       expect(newBEEF[`${txid17d182}_0`].length).toBeGreaterThan(beef17d182_0.length)
       expect(Object.keys(newBEEF).length).toBe(4)
 
-      const mp17d182 = Transaction.fromHexBEEF(beef17d182_0).merklePath!
+      const mp17d182 = Transaction.fromHexBEEF(beef17d182_0).merklePath
       await engine.handleNewMerkleProof(txid17d182, mp17d182)
       expect(newBEEF[`${txid877734}_0`]).toBe(beef877734_0)
       expect(newBEEF[`${txid509f5e}_0`]).toBe(beef509f5e_0)
@@ -684,7 +685,7 @@ const mockOutput: Output = {
             query: { name: 'Bob' }
           })
           expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(
-            "mockTXID", 0, undefined, false
+            'mockTXID', 0, undefined, false
           )
         })
         it('Calls getUTXOHistory with the correct UTXO and history parameters', async () => {
@@ -750,7 +751,8 @@ const mockOutput: Output = {
           outputs: [{
             beef: mockOutput.beef,
             outputIndex: mockOutput.outputIndex
-          }], type: 'output-list'
+          }],
+          type: 'output-list'
         })
       })
     })
@@ -828,7 +830,7 @@ const mockOutput: Output = {
         )
         expect(results).toEqual({
           outputs: [],
-          type: "output-list"
+          type: 'output-list'
         })
       })
       it('Returns undefined if the history selector is a number, and less than the current depth', async () => {
@@ -856,7 +858,7 @@ const mockOutput: Output = {
         })
         expect(results).toEqual({
           outputs: [],
-          type: "output-list"
+          type: 'output-list'
         })
       })
       it('Returns the current output even if history should be traversed, if the current output is part of a transaction that does not consume any previous topical UTXOs', async () => {
@@ -887,7 +889,8 @@ const mockOutput: Output = {
           outputs: [{
             beef: mockOutput.beef,
             outputIndex: mockOutput.outputIndex
-          }], type: 'output-list'
+          }],
+          type: 'output-list'
         })
       })
       // it('Traversing history, calls findOutput with any output consumed by this UTXO', async () => {
@@ -963,7 +966,7 @@ const txid27c8f = '27c8f37851aabc468d3dbb6bf0789dc398a602dcb897ca04e7815d939d621
 /*
   txid 17d1829ba8424b97369ee8b528ee8b65d9d4b9c08d037d224a7be7c025f78f78 output 0 1196 sats
     txid 9426201003b01e5bb66e9240a1cc337174238e816a25a06ba532fa67af4457d7 output 0 1197 sats
-      txid 509f5ef79c18504fdfe21e67608f56bacb8d8a200634e46f60a9dc8430dcd6e9 output 0 1198 sats 
+      txid 509f5ef79c18504fdfe21e67608f56bacb8d8a200634e46f60a9dc8430dcd6e9 output 0 1198 sats
         txid 877734db8eb917d0e2174a4bdddc085b34f67cedd6b94628c4feb1b979a2b2c5 output 0 1199 sats
           txid 37abad7168d47d4e107d0f9f96813a4feef6ea346482fce554c3fade85d45409 output 0 1200 sats
             txid d786db393ec7f1315bee2cbd3aa47634394f57c861feed8c075563308f14c237 output 0 1568 sats

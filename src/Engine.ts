@@ -43,6 +43,13 @@ export class Engine {
     public advertiser?: Advertiser,
     public syncConfiguration?: SyncConfiguration
   ) {
+    // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all topics.
+    if (syncConfiguration === undefined) {
+      this.syncConfiguration = {}
+      for (const managerName of Object.keys(managers)) {
+        this.syncConfiguration[managerName] = 'SHIP'
+      }
+    }
   }
 
   /**
@@ -989,9 +996,34 @@ export class OverlayGASPStorage implements GASPStorage {
     }))
   }
 
-  // TODO: Consider optionality on interface
+  /**
+   * For a given txid and output index, returns the associated transaction, a merkle proof if the transaction is in a block, and metadata if if requested. If no metadata is requested, metadata hashes on inputs are not returned.
+   * @param graphID 
+   * @param txid 
+   * @param outputIndex 
+   * @param metadata 
+   * @returns 
+   */
   async hydrateGASPNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
-    throw new Error('GASP node hydration Not supported!')
+    const output = await this.engine.storage.findOutput(txid, outputIndex)
+
+    if (output === undefined || output === null) {
+      throw new Error('No matching output found!')
+    }
+
+    const tx = Transaction.fromBEEF(output.beef)
+    const rawTx = tx.toHex()
+
+    const node: GASPNode = {
+      rawTx,
+      graphID,
+      outputIndex
+    }
+    if (tx.merklePath !== undefined) {
+      node.proof = tx.merklePath.toHex()
+    }
+
+    return node
   }
 
   /**
@@ -1021,7 +1053,6 @@ export class OverlayGASPStorage implements GASPStorage {
 
     if (admittanceResult.outputsToAdmit.includes(tx.outputIndex)) {
       // The transaction is admissible, no further inputs are needed
-      return
     } else {
       // The transaction is not admissible, get inputs needed for further verification
       // TopicManagers should implement a function to identify which inputs are needed.
@@ -1037,20 +1068,9 @@ export class OverlayGASPStorage implements GASPStorage {
         } catch (e) {
           console.error(`An error occurred when identifying needed inputs for transaction: ${parsedTx.id('hex')}.${tx.outputIndex}!`)
           // Cut off the graph in case of an error here.
-          return
         }
-      } else {
-        // In case the topic manager isn't able to stipulate needed inputs, we need to request all inputs as if we had no merkle proof.
-        // However, it's dubious that we sometimes don't know — QUESTION: Should we require all topic managers to support this functionality?
-        // The alternative to requiring ALL inputs by default is to require NO inputs by default, cutting off the historical graph at this point
-        // (e.g. `return undefined`).
-        for (const input of parsedTx.inputs) {
-          response.requestedInputs[`${input.sourceTXID}.${input.sourceOutputIndex}`] = {
-            metadata: false
-          }
-        }
-        return await this.stripAlreadyKnownInputs(response)
       }
+      // By default, if the topic manager isn't able to stipulate needed inputs, only the inputs necessary for SPV are requested.
     }
     // Everything else falls through to returning undefined/void, which will terminate the synchronization at this point.
   }

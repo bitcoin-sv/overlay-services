@@ -1129,13 +1129,6 @@ export class OverlayGASPStorage implements GASPStorage {
     * Checks whether the given graph, in its current state, makes reference only to transactions that are proven in the blockchain, or already known by the recipient to be valid.
     * Additionally, in a breadth-first manner (ensuring that all inputs for any given node are processed before nodes that spend them), it ensures that the root node remains valid according to the rules of the overlay's topic manager,
     * while considering any coins which the Manager had previously indicated were either valid or invalid.
-    * 
-    * 1. Confirm that we are well anchored (according to the rules of SPV)
-    * 2. Is there some sequence of nodes that will result in the admittance of the root node into the topic
-    * 3. If there is some spend chain that, when executed in order to the root node, leads to a valid admittance, we are good to go.
-    *    a) For each node in the chain we need to check topical admittance (such that all relevant inputs to any given node are executed before the node in question).
-    *    b) Once previous nodes are validated, they are taken into account as previous coins to their direct spenders.
-    * 
     * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
     * @throws If the graph is not well-anchored, according to the rules of Bitcoin or the rules of the Overlay Topic Manager.
     */
@@ -1154,63 +1147,36 @@ export class OverlayGASPStorage implements GASPStorage {
     }
 
     // Then, ensure the node is Overlay-valid.
-    const validationMap = new Map<string, boolean>() // Tracks historical node validity, avoiding duplication of work
-    const ensureTopicalAnchor = async (graphNode: GraphNode): Promise<boolean> => {
-      const dupeCheckNode = validationMap.get(`${graphNode.txid}.${graphNode.outputIndex}`)
-      if (typeof dupeCheckNode !== 'undefined') {
-        return dupeCheckNode
-      }
+    const beefs = this.computeOrderedBEEFsForGraph(graphID)
 
-      // Parse the transaction, adding a proof if we have one
-      const parsedTX = Transaction.fromHex(graphNode.rawTx)
-      if (graphNode.proof !== undefined) {
-        parsedTX.merklePath = MerklePath.fromHex(graphNode.proof)
-      }
+    // coins: a Set of all historical coins to retain (no need to remove them), used to emulate topical admittance of previous inputs over time.
+    const coins = new Set<string>()
 
-      const validatedChildren: GraphNode[] = []
-      for (const child of graphNode.children) {
-        // If the child has not been validated, check it.
-        if (!validationMap.has(`${child.txid}.${child.outputIndex}`)) {
-          const isValidChild = await ensureTopicalAnchor(child)
-          if (isValidChild) {
-            validatedChildren.push(child)
-          }
-        } else {
-          // If the child has been validated already, just add it to the list.
-          validatedChildren.push(child)
+    // Submit all historical BEEFs in order through the topic manager, tracking what would be retained until we submit the root node last.
+    // If, at the end, the root node is admitted, we have a valid overlay-specific graph.
+    for (const beef of beefs) {
+      // For any input to this transaction, see if it's a valid coin that's admitted. If so, it's a previous coin.
+      const previousCoins: number[] = []
+      const tx = Transaction.fromBEEF(beef)
+      for (const inputIndex in tx.inputs) {
+        const input = tx.inputs[inputIndex]
+        const sourceTXID = input.sourceTXID || input.sourceTransaction?.id('hex')
+        const coin = `${sourceTXID}.${input.sourceOutputIndex}`
+        if (coins.has(coin)) {
+          previousCoins.push(Number(inputIndex))
         }
       }
-
-      let admittanceResult
-      try {
-        // Previous coins are input indices corresponding to outputs redeemed.
-        const previousCoins = validatedChildren.map(child =>
-          parsedTX.inputs.findIndex(i => i.sourceOutputIndex === child.outputIndex && i.sourceTXID === child.txid)
-        )
-        admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTX.toBEEF(), previousCoins)
-      } catch (error) {
-        console.error('Error in admittance check:', error)
-        validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, false)
-        return false
+      const admittanceInstructions = await this.engine.managers[this.topic].identifyAdmissibleOutputs(beef, previousCoins)
+      // Every admitted output is now a coin.
+      for (const outputIndex of admittanceInstructions.outputsToAdmit) {
+        coins.add(`${tx.id('hex')}.${outputIndex}`)
       }
-
-      const isValid = admittanceResult.outputsToAdmit.includes(graphNode.outputIndex)
-      validationMap.set(`${graphNode.txid}.${graphNode.outputIndex}`, isValid)
-
-      if (isValid === false) {
-        return false
-      }
-
-      // Reached the root successfully
-      if (graphNode.parent === undefined) {
-        return true
-      }
-
-      return await ensureTopicalAnchor(graphNode.parent)
     }
-    const isOverlayValid = await ensureTopicalAnchor(rootNode)
-    if (!isOverlayValid) {
-      throw new Error('The graph is not well-anchored according to the rules of this overlay topic.')
+    // After sending through all the graph's BEEFs...
+    // If the root node is now a coin, we have acceptance by the overlay.
+    // Otherwise, throw.
+    if (!coins.has(graphID)) {
+      throw new Error('This graph did not result in topical admittance of the root node. Rejecting.')
     }
   }
 
@@ -1233,7 +1199,23 @@ export class OverlayGASPStorage implements GASPStorage {
    * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the root of this graph.
    */
   async finalizeGraph(graphID: string): Promise<void> {
-    // Construct an ordered set of BEEFs for the graph
+    const beefs = this.computeOrderedBEEFsForGraph(graphID)
+
+    // Submit all historical BEEFs in order, finalizing the graph for the current UTXO
+    for (const beef of beefs) {
+      await this.engine.submit({
+        beef,
+        topics: [this.topic]
+      }, () => { }, 'historical-tx')
+    }
+  }
+
+  /**
+   * Computes an ordered set of BEEFs for the graph with the given graph IDs
+   * @param {string} graphID — The ID of the graph for which BEEFs are required
+   * @returns Ordered BEEFs for the graph
+   */
+  private computeOrderedBEEFsForGraph(graphID: string): number[][] {
     const beefs: number[][] = []
     const hydrator = (node: GraphNode): void => {
       const currentBEEF = this.getBEEFForNode(node)
@@ -1253,14 +1235,7 @@ export class OverlayGASPStorage implements GASPStorage {
       throw new Error('Unable to find root node in graph for finalization!')
     }
     hydrator(foundRoot)
-
-    // Submit all historical BEEFs in order, finalizing the graph for the current UTXO
-    for (const beef of beefs) {
-      await this.engine.submit({
-        beef,
-        topics: [this.topic]
-      }, () => { }, 'historical-tx')
-    }
+    return beefs
   }
 
   /**

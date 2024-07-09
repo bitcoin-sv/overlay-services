@@ -11,7 +11,7 @@ import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
-import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from './GASP.js'
+import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from '@bsv/gasp'
 import { SyncConfiguration } from './SyncConfiguration.js'
 
 /**

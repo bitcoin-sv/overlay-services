@@ -11,7 +11,7 @@ import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
 import { Advertiser } from './Advertiser.js'
 import { SHIPAdvertisement } from './SHIPAdvertisement.js'
-import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from '@bsv/gasp'
+import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from './GASP.js'
 import { SyncConfiguration } from './SyncConfiguration.js'
 
 /**
@@ -570,25 +570,47 @@ export class Engine {
    * @throws An error if no output is found for the given transaction ID and output index.
    */
   async provideForeignGASPNode(graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
-    const output = await this.storage.findOutput(txid, outputIndex)
+    const [rootTxid, rootOutputIndex] = graphID.split('.')
+    const output = await this.storage.findOutput(rootTxid, Number(rootOutputIndex))
 
     if (output === undefined || output === null) {
       throw new Error('No matching output found!')
     }
 
-    const tx = Transaction.fromBEEF(output.beef)
-    const rawTx = tx.toHex()
-
-    const node: GASPNode = {
-      rawTx,
-      graphID,
-      outputIndex
+    const rootTx = Transaction.fromBEEF(output.beef)
+    let correctTx: Transaction | undefined
+    const searchInput = (tx: Transaction): void => {
+      if (tx.id('hex') === rootTxid) {
+        correctTx = tx
+      } else {
+        // For each input, look it up and recurse.
+        for (const input of tx.inputs) {
+          // We should always have a source transaction
+          if (input.sourceTransaction !== undefined) {
+            searchInput(input.sourceTransaction)
+          } else {
+            throw new Error('Incomplete SPV data!')
+          }
+        }
+      }
     }
-    if (tx.merklePath !== undefined) {
-      node.proof = tx.merklePath.toHex()
-    }
 
-    return node
+    searchInput(rootTx)
+
+    if (correctTx !== undefined) {
+      const rawTx = correctTx.toHex()
+      const node: GASPNode = {
+        rawTx,
+        graphID,
+        outputIndex
+      }
+      if (correctTx.merklePath !== undefined) {
+        node.proof = correctTx.merklePath.toHex()
+      }
+
+      return node
+    }
+    throw new Error('Unable to find ')
   }
 
   /**

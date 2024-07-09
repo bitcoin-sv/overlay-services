@@ -14,7 +14,7 @@ describe('OverlayGASPRemote', () => {
   let overlayRemote: OverlayGASPRemote
 
   beforeEach(() => {
-    overlayRemote = new OverlayGASPRemote('http://example.com');
+    overlayRemote = new OverlayGASPRemote('http://example.com', 'tm_test');
     (fetch as jest.Mock).mockClear()
   })
 
@@ -36,7 +36,10 @@ describe('OverlayGASPRemote', () => {
 
       expect(fetch).toHaveBeenCalledWith('http://example.com/requestSyncResponse', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-BSV-Topic': 'tm_test'
+        },
         body: JSON.stringify(mockRequest)
       })
       expect(response).toEqual(mockResponse)

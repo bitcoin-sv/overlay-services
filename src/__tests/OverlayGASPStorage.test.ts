@@ -7,7 +7,7 @@ describe('OverlayGASPStorage', () => {
   let mockEngine: any
 
   beforeEach(() => {
-    mockEngine = { storage: { findUTXOsForTopic: jest.fn() }, managers: {} }
+    mockEngine = { storage: { findOutput: jest.fn(() => undefined), findUTXOsForTopic: jest.fn() }, managers: {} }
     overlayStorage = new OverlayGASPStorage('test-topic', mockEngine)
   })
 

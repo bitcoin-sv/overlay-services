@@ -1073,6 +1073,7 @@ export class OverlayGASPStorage implements GASPStorage {
     if (Object.keys(response.requestedInputs).length === 0) {
       return undefined
     }
+    return response
   }
 
   /**

@@ -9,10 +9,10 @@ import { LookupQuestion } from './LookupQuestion.js'
 import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
 import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
-import { Advertiser } from './Advertiser.js'
-import { SHIPAdvertisement } from './SHIPAdvertisement.js'
+import { AdvertisementData, Advertiser } from './Advertiser.js'
 import { GASP, GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote, GASPStorage } from '@bsv/gasp'
 import { SyncConfiguration } from './SyncConfiguration.js'
+import { Advertisement } from './Advertisement.js'
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -272,7 +272,7 @@ export class Engine {
 
           // Lookup will currently always return type output-list
           if (lookupAnswer.type === 'output-list') {
-            const shipAdvertisements: SHIPAdvertisement[] = []
+            const shipAdvertisements: Advertisement[] = []
             lookupAnswer.outputs.forEach(output => {
               try {
                 // Parse out the advertisements using the provided parser
@@ -286,7 +286,7 @@ export class Engine {
               }
             })
             if (shipAdvertisements.length > 0) {
-              shipAdvertisements.forEach((advertisement: SHIPAdvertisement) => {
+              shipAdvertisements.forEach((advertisement: Advertisement) => {
                 if (!domainToTopicsMap.has(advertisement.domain)) {
                   domainToTopicsMap.set(advertisement.domain, new Set<string>())
                 }
@@ -423,57 +423,49 @@ export class Engine {
     const configuredServices = Object.keys(this.lookupServices)
 
     // Step 2: Fetch Existing Advertisements
-    const currentSHIPAdvertisements = await advertiser.findAllSHIPAdvertisements()
-    const currentSLAPAdvertisements = await advertiser.findAllSLAPAdvertisements()
+    const currentSHIPAdvertisements = await advertiser.findAllAdvertisements('SHIP')
+    const currentSLAPAdvertisements = await advertiser.findAllAdvertisements('SLAP')
 
     // Step 3: Compare and Determine Actions
     const requiredSHIPAdvertisements = new Set(configuredTopics)
     const requiredSLAPAdvertisements = new Set(configuredServices)
 
-    const existingSHIPTopics = new Set(currentSHIPAdvertisements.map(ad => ad.topic))
-    const existingSLAPServices = new Set(currentSLAPAdvertisements.map(ad => ad.service))
+    const existingTopics = new Set(currentSHIPAdvertisements.map(ad => ad.topicOrService))
+    const existingServices = new Set(currentSLAPAdvertisements.map(ad => ad.topicOrService))
 
-    const shipToCreate = Array.from(requiredSHIPAdvertisements).filter(topic => !existingSHIPTopics.has(topic))
-    const shipToRevoke = currentSHIPAdvertisements.filter(ad => !requiredSHIPAdvertisements.has(ad.topic))
+    const shipsToCreate = Array.from(requiredSHIPAdvertisements).filter(topicOrService => !existingTopics.has(topicOrService))
+    const slapsToCreate = Array.from(requiredSLAPAdvertisements).filter(topicOrService => !existingServices.has(topicOrService))
+    const shipsToRevoke = currentSHIPAdvertisements.filter(ad => !requiredSHIPAdvertisements.has(ad.topicOrService))
+    const slapsToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.topicOrService))
 
-    const slapToCreate = Array.from(requiredSLAPAdvertisements).filter(service => !existingSLAPServices.has(service))
-    const slapToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.service))
-
-    // Step 4: Update Advertisements
-    for (const topic of shipToCreate) {
-      try {
-        const taggedBEEF = await advertiser.createSHIPAdvertisement(topic)
+    // Create needed SHIP/SLAP advertisements
+    try {
+      if (shipsToCreate.length > 0 || slapsToCreate.length > 0) {
+        const advertisementData: AdvertisementData[] = [
+          ...shipsToCreate.map(topic => ({
+            protocol: 'SHIP' as 'SHIP',
+            topicOrServiceName: topic
+          })),
+          ...slapsToCreate.map(service => ({
+            protocol: 'SLAP' as 'SLAP',
+            topicOrServiceName: service
+          }))
+        ]
+        const taggedBEEF = await advertiser.createAdvertisements(advertisementData)
         await this.submit(taggedBEEF)
-      } catch (error) {
-        console.error('Failed to create SHIP advertisement:', error)
       }
+    } catch (error) {
+      console.error('Failed to create SHIP advertisement:', error)
     }
 
-    for (const service of slapToCreate) {
-      try {
-        const taggedBEEF = await advertiser.createSLAPAdvertisement(service)
+    // Revoke all advertisements to revoke
+    try {
+      if (shipsToRevoke.length > 0 || slapsToRevoke.length > 0) {
+        const taggedBEEF = await advertiser.revokeAdvertisements([...shipsToRevoke, ...slapsToRevoke])
         await this.submit(taggedBEEF)
-      } catch (error) {
-        console.error('Failed to create SLAP advertisement:', error)
       }
-    }
-
-    for (const ad of shipToRevoke) {
-      try {
-        const taggedBEEF = await advertiser.revokeAdvertisement(ad)
-        await this.submit(taggedBEEF)
-      } catch (error) {
-        console.error('Failed to revoke SHIP advertisement:', error)
-      }
-    }
-
-    for (const ad of slapToRevoke) {
-      try {
-        const taggedBEEF = await advertiser.revokeAdvertisement(ad)
-        await this.submit(taggedBEEF)
-      } catch (error) {
-        console.error('Failed to revoke SLAP advertisement:', error)
-      }
+    } catch (error) {
+      console.error('Failed to revoke SHIP/SLAP advertisements:', error)
     }
   }
 

@@ -770,20 +770,19 @@ export class Engine {
 
   /**
    * Given a new transaction proof (txid, proof),
-   * 
    * update tx.merklePath if appropriate,
-   * 
    * and if not, recurse through all input sourceTransactions.
-   * 
+   *
    * @param tx transaction which may benefit from new proof.
    * @param txid BE hex string double hash of transaction proven by proof.
    * @param proof for txid
    */
-  private updateInputProofs(tx: Transaction, txid: string, proof: MerklePath) {
-    if (tx.merklePath)
-      // transaction already has a proof
+  private updateInputProofs(tx: Transaction, txid: string, proof: MerklePath): void {
+    if (tx.merklePath !== undefined) {
+      // Update the merkle path to handle potential reorgs
+      tx.merklePath = proof
       return
-
+    }
     if (tx.id('hex') === txid) {
       tx.merklePath = proof
     } else {
@@ -803,12 +802,12 @@ export class Engine {
    * @param proof - The merklePath proving txid is a mined transaction hash
    */
   private async updateMerkleProof(output: Output, txid: string, proof: MerklePath): Promise<void> {
-
     const tx = Transaction.fromBEEF(output.beef)
-
-    if (tx.merklePath)
-      // Already have a proof for this output's transaction.
+    if (tx.merklePath !== undefined) {
+      // Update the merkle path to handle potential reorgs
+      tx.merklePath = proof
       return
+    }
 
     // recursively update all sourceTransactions proven by (txid,proof)
     this.updateInputProofs(tx, txid, proof)
@@ -834,7 +833,7 @@ export class Engine {
   async handleNewMerkleProof(txid: string, proof: MerklePath): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid)
 
-    if (outputs == undefined || outputs.length === 0) {
+    if (outputs === undefined || outputs.length === 0) {
       throw new Error('Could not find matching transaction outputs for proof ingest!')
     }
 

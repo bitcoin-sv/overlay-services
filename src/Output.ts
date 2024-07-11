@@ -26,4 +26,5 @@ export type Output = {
     txid: string
     outputIndex: number
   }>
+  blockHeight?: number
 }

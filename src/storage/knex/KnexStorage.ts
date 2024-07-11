@@ -59,11 +59,10 @@ export class KnexStorage implements Storage {
   async findUTXOsForTopic(topic: string, since?: number): Promise<Output[]> {
     const query = this.knex('outputs').where({ topic, spent: false })
 
-    // TODO: Create new migration for outputs that adds either created_at or block height tagging for proven outpoints if necessary.
-    // if (since !== undefined) {
-    //   const sinceDate = new Date(since).toISOString()
-    //   await query.andWhere('created_at', '>=', sinceDate)
-    // }
+    // If provided, additionally filters UTXOs by block height
+    if (since !== undefined) {
+      await query.andWhere('blockHeight', '>=', since)
+    }
 
     const outputs = await query.select(
       'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
@@ -125,6 +124,14 @@ export class KnexStorage implements Storage {
       outputIndex,
       topic
     }).update('beef', Buffer.from(beef))
+  }
+
+  async updateOutputBlockHeight(txid: string, outputIndex: number, topic: string, blockHeight: number): Promise<void> {
+    await this.knex('outputs').where({
+      txid,
+      outputIndex,
+      topic
+    }).update('blockHeight', blockHeight)
   }
 
   async insertAppliedTransaction(tx: { txid: string, topic: string }): Promise<void> {

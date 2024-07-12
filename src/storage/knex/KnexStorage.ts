@@ -60,7 +60,7 @@ export class KnexStorage implements Storage {
     const query = this.knex('outputs').where({ topic, spent: false })
 
     // If provided, additionally filters UTXOs by block height
-    if (since !== undefined) {
+    if (since !== undefined && since > 0) {
       await query.andWhere('blockHeight', '>=', since)
     }
 

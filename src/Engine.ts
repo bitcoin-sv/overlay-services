@@ -531,12 +531,12 @@ export class Engine {
    * Given a GASP request, create an initial response.
    *
    * This method processes an initial synchronization request by finding the relevant UTXOs for the given topic
-   * since the provided (TODO: timestamp or block height, we need to decide on sync timing semantics) in the request. It constructs a response that includes a list of these UTXOs
-   * and the (timestamp or block height, TODO...) from the initial request.
+   * since the provided block height in the request. It constructs a response that includes a list of these UTXOs
+   * and the min block height from the initial request.
    *
-   * @param initialRequest - The GASP initial request containing the version and the (timestamp or block height, TODO...) since the last sync.
+   * @param initialRequest - The GASP initial request containing the version and the block height since the last sync.
    * @param topic - The topic for which UTXOs are being requested.
-   * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided timestamp.
+   * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided min block height.
    */
   async provideForeignSyncResponse(initialRequest: GASPInitialRequest, topic: string): Promise<GASPInitialResponse> {
     const UTXOs = await this.storage.findUTXOsForTopic(topic, initialRequest.since)
@@ -821,8 +821,9 @@ export class Engine {
    *
    * @param txid - Transaction ID of the associated outputs to prune.
    * @param proof - Merkle proof containing the Merkle path and other relevant data to verify the transaction.
+   * @param blockHeight - The block height associated with the incoming merkle proof.
    */
-  async handleNewMerkleProof(txid: string, proof: MerklePath): Promise<void> {
+  async handleNewMerkleProof(txid: string, proof: MerklePath, blockHeight?: number): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid)
 
     if (outputs === undefined || outputs.length === 0) {
@@ -831,6 +832,12 @@ export class Engine {
 
     for (const output of outputs) {
       await this.updateMerkleProof(output, txid, proof)
+
+      // Add the associated blockHeight
+      if (blockHeight !== undefined) {
+        output.blockHeight = blockHeight
+        await this.storage.updateOutputBlockHeight?.(output.txid, output.outputIndex, output.topic, blockHeight)
+      }
     }
   }
 
@@ -997,7 +1004,6 @@ export class OverlayGASPRemote implements GASPRemote {
  */
 export interface GraphNode {
   txid: string
-  time: number
   graphID: string
   rawTx: string
   outputIndex: number
@@ -1149,7 +1155,6 @@ export class OverlayGASPStorage implements GASPStorage {
     // Use the spentBy param which should be a txid.inputIndex for the node which spent this one in 36-byte format
     const newGraphNode: GraphNode = {
       txid,
-      time: 0, // TODO: Determine required format for Time (either block height or timestamp, undefined / Infinity for unconfirmed transactions
       graphID: tx.graphID,
       rawTx: tx.rawTx,
       outputIndex: tx.outputIndex,

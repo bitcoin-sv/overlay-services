@@ -80,6 +80,16 @@ export interface Storage {
    */
   updateOutputBeef: (txid: string, outputIndex: number, topic: string, beef: number[]) => Promise<void>
 
+
+  /**
+   * Updates the block height on an output
+   * @param txid — TXID of the output to update
+   * @param outputIndex — Index of the output to update
+   * @param topic— Topic in which the output should be updated
+   * @param blockHeight - height of the block the transaction associated with this output was included in
+   */
+  updateOutputBlockHeight?: (txid: string, outputIndex: number, topic: string, blockHeight: number) => Promise<void>
+
   /**
    * Inserts record of the applied transaction
    * @param tx — The transaction to insert

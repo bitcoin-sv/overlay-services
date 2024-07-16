@@ -16,4 +16,4 @@
  *   "topicManager2": "SHIP"
  * }
  */
-export type SyncConfiguration = Record<string, string[] | 'SHIP'>
+export type SyncConfiguration = Record<string, string[] | 'SHIP' | false>

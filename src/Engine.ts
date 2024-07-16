@@ -29,7 +29,7 @@ export class Engine {
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
    * @param {string} slapTrackers - SLAP domains we know to bootstrap the system
-   * @param {Record<string, string[] | 'SHIP'>} syncConfiguration — Configuration object describing historical synchronization of topics.
+   * @param {SyncConfiguration} syncConfiguration — Configuration object describing historical synchronization of topics.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -43,11 +43,34 @@ export class Engine {
     public advertiser?: Advertiser,
     public syncConfiguration?: SyncConfiguration
   ) {
-    // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all topics.
+    // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all overlay topics, except for 'tm_ship' and 'tm_slap'.
+    // For these two topics, any existing trackers are combined with the provided shipTrackers and slapTrackers omitting any duplicates.
     if (syncConfiguration === undefined) {
       this.syncConfiguration = {}
-      for (const managerName of Object.keys(managers)) {
-        this.syncConfiguration[managerName] = 'SHIP'
+    } else {
+      this.syncConfiguration = syncConfiguration
+    }
+
+    for (const managerName of Object.keys(managers)) {
+      if (managerName === 'tm_ship' && this.shipTrackers !== undefined && this.syncConfiguration[managerName] !== false) {
+        // Combine tm_ship trackers with preexisting entries if any
+        const combinedSet = new Set([
+          ...(Array.isArray(this.syncConfiguration[managerName]) ? this.syncConfiguration[managerName] as string[] : []),
+          ...this.shipTrackers
+        ])
+        this.syncConfiguration[managerName] = Array.from(combinedSet)
+      } else if (managerName === 'tm_slap' && this.slapTrackers !== undefined && this.syncConfiguration[managerName] !== false) {
+        // Combine tm_slap trackers with preexisting entries if any
+        const combinedSet = new Set([
+          ...(Array.isArray(this.syncConfiguration[managerName]) ? this.syncConfiguration[managerName] as string[] : []),
+          ...this.slapTrackers
+        ])
+        this.syncConfiguration[managerName] = Array.from(combinedSet)
+      } else {
+        // Set undefined managers to 'SHIP' by default
+        if (this.syncConfiguration[managerName] === undefined) {
+          this.syncConfiguration[managerName] = 'SHIP'
+        }
       }
     }
   }
@@ -483,7 +506,12 @@ export class Engine {
 
     for (const topic of Object.keys(this.syncConfiguration)) {
       // Make sure syncEndpoints is an array or SHIP
-      let syncEndpoints: string[] | string = this.syncConfiguration[topic]
+      let syncEndpoints: string[] | string | false = this.syncConfiguration[topic]
+
+      // Check if this topic has been configured NOT to sync
+      if (syncEndpoints === false) {
+        continue
+      }
 
       if (syncEndpoints === 'SHIP') {
         // Perform lookup and find ship advertisements to set syncEndpoints for topic

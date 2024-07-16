@@ -5,6 +5,7 @@ import { AdmittanceInstructions } from '../AdmittanceInstructions'
 import { Storage } from '../storage/Storage'
 import { Transaction, Utils } from '@bsv/sdk'
 import { Output } from '../Output'
+import { SyncConfiguration } from '../SyncConfiguration'
 
 const mockChainTracker = {
   isValidRootForHeight: jest.fn(async () => true)
@@ -63,6 +64,83 @@ describe('BSV Overlay Services Engine', () => {
       deleteOutput: jest.fn(),
       findUTXOsForTopic: jest.fn()
     }
+  })
+  it('Uses SHIP sync configuration by default if no syncConfiguration was provided', () => {
+    const engine = new Engine(
+      { tm_helloworld: mockTopicManager },
+      { ls_helloworld: mockLookupService },
+      mockStorageEngine,
+      mockChainTracker,
+      undefined, // hostingURL
+      ['tracker1'], // shipTrackers
+      ['tracker2'], // slapTrackers
+      undefined,
+      undefined,
+      undefined
+    )
+
+    expect(engine.syncConfiguration).toEqual({ tm_helloworld: 'SHIP' })
+  })
+
+  it('Does not set sync method to "SHIP" for topic managers set to false in the syncConfiguration', () => {
+    const syncConfiguration: SyncConfiguration = { tm_helloworld: false }
+    const engine = new Engine(
+      { tm_helloworld: mockTopicManager },
+      { ls_helloworld: mockLookupService },
+      mockStorageEngine,
+      mockChainTracker,
+      undefined, // hostingURL
+      ['tracker1'], // shipTrackers
+      ['tracker2'], // slapTrackers
+      undefined,
+      undefined,
+      syncConfiguration
+    )
+
+    expect(engine.syncConfiguration).toEqual({ tm_helloworld: false })
+  })
+
+  it('Combines existing trackers with provided shipTrackers and slapTrackers, ensuring no duplicates', () => {
+    const syncConfiguration: SyncConfiguration = { tm_ship: ['existingTracker1'], tm_slap: ['existingTracker2'] }
+    const engine = new Engine(
+      { tm_ship: mockTopicManager, tm_slap: mockTopicManager },
+      { ls_ship: mockLookupService, ls_slap: mockLookupService },
+      mockStorageEngine,
+      mockChainTracker,
+      undefined, // hostingURL
+      ['tracker1', 'existingTracker1'], // shipTrackers
+      ['tracker2', 'existingTracker2'], // slapTrackers
+      undefined,
+      undefined,
+      syncConfiguration
+    )
+
+    expect(engine.syncConfiguration).toEqual({
+      tm_ship: ['existingTracker1', 'tracker1'],
+      tm_slap: ['existingTracker2', 'tracker2']
+    })
+  })
+
+  it('Sets undefined topic managers in syncConfiguration to sync method of "SHIP" by default', () => {
+    const syncConfiguration: SyncConfiguration = { tm_helloworld: 'SHIP' }
+    const engine = new Engine(
+      { tm_helloworld: mockTopicManager, tm_ship: mockTopicManager, tm_slap: mockTopicManager },
+      { ls_helloworld: mockLookupService, ls_ship: mockLookupService, ls_slap: mockLookupService },
+      mockStorageEngine,
+      mockChainTracker,
+      undefined, // hostingURL
+      ['tracker1'], // shipTrackers
+      ['tracker2'], // slapTrackers
+      undefined,
+      undefined,
+      syncConfiguration
+    )
+
+    expect(engine.syncConfiguration).toEqual({
+      tm_helloworld: 'SHIP',
+      tm_ship: ['tracker1'],
+      tm_slap: ['tracker2']
+    })
   })
   describe('handleNewMerkleProof tests', () => {
     const mockOutput: Output = {

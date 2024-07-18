@@ -14,8 +14,6 @@ export type Output = {
   topic: string
   /** Whether the output is spent */
   spent: boolean
-  /** The transaction data for the output */
-  beef: number[]
   /** Outputs consumed by the transaction associated with the output */
   outputsConsumed: Array<{
     txid: string
@@ -26,5 +24,7 @@ export type Output = {
     txid: string
     outputIndex: number
   }>
+  /** The transaction data for the output */
+  beef?: number[]
   blockHeight?: number
 }

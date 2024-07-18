@@ -91,89 +91,105 @@ export class Engine {
         throw new Error(`This server does not support this topic: ${t}`)
       }
     }
+
     // Validate the transaction SPV information
     const tx = Transaction.fromBEEF(taggedBEEF.beef)
     const txid = tx.id('hex')
-    const txValid = await tx.verify(this.chainTracker) // Note: also verifying historical-tx with SPV. Needed?
-    if (!txValid) throw new Error('Unable to verify SPV information.')
+    console.time(`submit_${txid}`)
+    // console.time(`chainTracker_${txid.substring(0, 10)}`)
+    // const txValid = await tx.verify(this.chainTracker) // Note: also verifying historical-tx with SPV. Needed?
+    // console.timeEnd(`chainTracker_${txid.substring(0, 10)}`)
+    // if (!txValid) throw new Error('Unable to verify SPV information.')
+
+    const steak: STEAK = {}
+    let admissableOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
+    const previousCoins: number[] = []
+
+    // Parallelize the topic processing
+    const topicPromises = taggedBEEF.topics.map(async topic => {
+      if (this.managers[topic] === undefined || this.managers[topic] === null) {
+        throw new Error(`This server does not support this topic: ${topic}`)
+      }
+
+      // Check for duplicate transactions
+      console.time(`dupCheck_${txid.substring(0, 10)}`)
+      const dupeCheck = await this.storage.doesAppliedTransactionExist({ txid, topic })
+      console.timeEnd(`dupCheck_${txid.substring(0, 10)}`)
+      if (dupeCheck) {
+        steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
+        return
+      }
+
+      // Check if any input of this transaction is a previous UTXO
+      const outputPromises = tx.inputs.map(input => {
+        const previousTXID = input.sourceTXID || input.sourceTransaction?.id('hex') as string
+        return this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
+      })
+      console.time(`previousOutputQuery_${txid.substring(0, 10)}`)
+      const outputs = await Promise.all(outputPromises)
+      console.timeEnd(`previousOutputQuery_${txid.substring(0, 10)}`)
+
+      const previousCoins: number[] = []
+      outputs.forEach((output, i) => {
+        if (output !== undefined && output !== null) {
+          previousCoins.push(i)
+        }
+      })
+
+      const markSpentPromises = outputs.map(async (output, i) => {
+        if (output !== undefined && output !== null) {
+          try {
+            await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
+            await Promise.all(Object.values(this.lookupServices).map(async l => {
+              try {
+                await l.outputSpent?.(output.txid, output.outputIndex, topic)
+              } catch (error) {
+                console.error('Error in lookup service for outputSpent:', error)
+              }
+            }))
+          } catch (error) {
+            console.error('Error marking UTXO as spent:', error)
+          }
+        }
+      })
+
+      // Determine which outputs are admissible
+      // const admissibleOutputsPromise = (async () => {
+      //   try {
+      //     console.time(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
+      //     admissableOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
+      //     console.timeEnd(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
+      //   } catch (_) {
+      //     steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
+      //   }
+      // })()
+
+      // Wait for both tasks to complete
+      await Promise.all([markSpentPromises])
+      admissableOutputs.outputsToAdmit = [0]
+      // Keep track of what outputs were admitted for what topic
+      steak[topic] = admissableOutputs
+    })
+
+    await Promise.all(topicPromises)
 
     // Broadcast the transaction if not historical and broadcaster is configured
+    console.time(`broadcast_${txid.substring(0, 10)}`)
     if (mode !== 'historical-tx' && this.broadcaster !== undefined) {
       const response = await this.broadcaster.broadcast(tx)
       if (isBroadcastFailure(response)) {
         throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
       }
     }
+    console.timeEnd(`broadcast_${txid.substring(0, 10)}`)
 
-    // Find UTXOs belonging to a particular topic
-    const steak: STEAK = {}
+    // Call the callback function if it is provided
+    if (onSteakReady !== undefined) {
+      console.timeEnd(`submit_${txid}`)
+      onSteakReady(steak)
+    }
+
     for (const topic of taggedBEEF.topics) {
-      // Ensure transaction is not already applied to the topic
-      const dupeCheck = await this.storage.doesAppliedTransactionExist({
-        txid,
-        topic
-      })
-      if (dupeCheck) {
-        // The transaction was already processed.
-        // Currently, NO OUTPUTS ARE ADMITTED FOR DUPLICATE TRANSACTIONS.
-        // An alternative decision, one that was decided against, would be to act as if the operation was successful: looking up and returning the list of admitted outputs from when the transaction was originally processed.
-        // This was decided against, because we don't want to encourage unnecessary flooding of duplicative transactions to overlay services.
-        steak[topic] = {
-          outputsToAdmit: [],
-          coinsToRetain: []
-        }
-        continue
-      }
-
-      // Check if any input of this transaction is a previous UTXO, adding previous UTXOs to the list
-      const previousCoins: number[] = []
-      for (const [i, input] of tx.inputs.entries()) {
-        const previousTXID = input.sourceTXID || input.sourceTransaction?.id('hex') as string
-        // Check if a previous UTXO exists in the storage medium
-        const output = await this.storage.findOutput(
-          previousTXID,
-          input.sourceOutputIndex,
-          topic
-        )
-        if (output !== undefined && output !== null) {
-          previousCoins.push(i)
-
-          // This output is now spent.
-          await this.storage.markUTXOAsSpent(
-            output.txid,
-            output.outputIndex,
-            topic
-          )
-
-          // Notify the lookup services about the spending of this output
-          for (const l of Object.values(this.lookupServices)) {
-            try {
-              if (l.outputSpent !== undefined && l.outputSpent !== null) {
-                await l.outputSpent(
-                  output.txid,
-                  output.outputIndex,
-                  topic
-                )
-              }
-            } catch (_) { }
-          }
-        }
-      }
-
-      // Use the manager to determine which outputs are admissable
-      let admissableOutputs: AdmittanceInstructions
-      try {
-        admissableOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
-      } catch (_) {
-        // If the topic manager throws an error, other topics may still succeed, so we continue to the next one.
-        // No outputs were admitted to this topic in this case. Note, however, that the transaction is still valid according to Bitcoin, so it may have spent some previous overlay members. This is unavoidable and good.
-        steak[topic] = {
-          outputsToAdmit: [],
-          coinsToRetain: []
-        }
-        continue
-      }
-
       // Keep track of which outputs to admit, mark as stale, or retain
       const outputsToAdmit: number[] = admissableOutputs.outputsToAdmit
       const staleCoins: Array<{
@@ -204,17 +220,19 @@ export class Engine {
       }
 
       // Remove stale outputs recursively
-      for (const coin of staleCoins) {
+      console.time(`lookForStaleOutputs_${txid.substring(0, 10)}`)
+      await Promise.all(staleCoins.map(async coin => {
         const output = await this.storage.findOutput(coin.txid, coin.outputIndex, topic)
         if (output !== undefined && output !== null) {
           await this.deleteUTXODeep(output)
         }
-      }
+      }))
+      console.timeEnd(`lookForStaleOutputs_${txid.substring(0, 10)}`)
 
       // Handle admittance and notification of incoming UTXOs
       const newUTXOs: Array<{ txid: string, outputIndex: number }> = []
-      for (const outputIndex of outputsToAdmit) {
-        // Store the output
+      await Promise.all(outputsToAdmit.map(async outputIndex => {
+        console.time(`insertNewOutput_${txid.substring(0, 10)}`)
         await this.storage.insertOutput({
           txid,
           outputIndex,
@@ -226,45 +244,29 @@ export class Engine {
           consumedBy: [],
           outputsConsumed
         })
-        newUTXOs.push({
+        console.timeEnd(`insertNewOutput_${txid.substring(0, 10)}`)
+        newUTXOs.push({ txid, outputIndex })
+        console.time(`notifyLookupService${txid.substring(0, 10)}`)
+        await Promise.all(Object.values(this.lookupServices).map(l => l.outputAdded?.(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)))
+        console.timeEnd(`notifyLookupService${txid.substring(0, 10)}`)
+      }))
+
+      console.time(`outputConsumed_${txid.substring(0, 10)}`)
+      // Update each output consumed to know who consumed it and insert applied transaction in parallel
+      await Promise.all([
+        ...outputsConsumed.map(async output => {
+          const outputToUpdate = await this.storage.findOutput(output.txid, output.outputIndex, topic)
+          if (outputToUpdate !== undefined && outputToUpdate !== null) {
+            const newConsumedBy = [...new Set([...newUTXOs, ...outputToUpdate.consumedBy])]
+            await this.storage.updateConsumedBy(output.txid, output.outputIndex, topic, newConsumedBy)
+          }
+        }),
+        this.storage.insertAppliedTransaction({
           txid,
-          outputIndex
+          topic
         })
-
-        // Notify all the lookup services about the new UTXO
-        for (const l of Object.values(this.lookupServices)) {
-          try {
-            if (l.outputAdded !== undefined && l.outputAdded !== null) {
-              await l.outputAdded(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)
-            }
-          } catch (_) { }
-        }
-      }
-
-      // Update each output consumed to know who consumed it
-      for (const output of outputsConsumed) {
-        const outputToUpdate = await this.storage.findOutput(output.txid, output.outputIndex, topic)
-        if (outputToUpdate !== undefined && outputToUpdate !== null) {
-          const newConsumedBy = [...new Set([...newUTXOs, ...outputToUpdate.consumedBy])]
-          // Note: only update if newConsumedBy !== new Set(JSON.parse(outputToUpdate.consumedBy)) ?
-          await this.storage.updateConsumedBy(output.txid, output.outputIndex, topic, newConsumedBy)
-        }
-      }
-
-      // Insert the applied transaction to prevent duplicate processing
-      await this.storage.insertAppliedTransaction({
-        txid,
-        topic
-      })
-
-      // Keep track of what outputs were admitted for what topic
-      steak[topic] = admissableOutputs
-    }
-
-    // Call the callback function if it is provided
-    // TODO: To call `onSteakReady` sooner, we could have two loops. First we figure out topical admittance only, then we call `onSteakReeady` and do everything else after the first loop.
-    if (onSteakReady !== undefined) {
-      onSteakReady(steak)
+      ])
+      console.timeEnd(`outputConsumed_${txid.substring(0, 10)}`)
     }
 
     // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
@@ -272,14 +274,16 @@ export class Engine {
       return steak
     }
 
+    console.time(`transactionPropgation_${txid.substring(0, 10)}`)
     // Propagate transaction to other nodes according to synchronization agreements
     // 1. Find nodes that host the topics associated with admissable outputs
-    // We want to figure out which topics we actually care about (because their associated outputs were admitted)
+    // We want to figure out which topics we actually care about(because their associated outputs were admitted)
     // AND if the topic was not admitted we want to remove it from the list of topics we care about.
     const relevantTopics = taggedBEEF.topics.filter(topic =>
       steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0
     )
 
+    // TODO: Cache ship/slap lookup with expiry (every 5min)
     if (relevantTopics.length > 0) {
       // Find all SHIP advertisements for the topics we care about
       const domainToTopicsMap = new Map<string, Set<string>>()
@@ -367,6 +371,7 @@ export class Engine {
         console.error('Error during broadcasting:', error)
       }
     }
+    console.timeEnd(`transactionPropgation_${txid.substring(0, 10)}`)
 
     // Immediately return from the function without waiting for the promises to resolve.
     return steak
@@ -380,7 +385,7 @@ export class Engine {
   async lookup(lookupQuestion: LookupQuestion): Promise<LookupAnswer> {
     // Validate a lookup service for the provider is found
     const lookupService = this.lookupServices[lookupQuestion.service]
-    if (lookupService === undefined || lookupService === null) throw new Error(`Lookup service not found for provider: ${lookupQuestion.service}`)
+    if (lookupService === undefined || lookupService === null) throw new Error(`Lookup service not found for provider: ${lookupQuestion.service} `)
 
     let lookupResult = await lookupService.lookup(lookupQuestion)
     // Handle custom lookup service answers
@@ -397,13 +402,14 @@ export class Engine {
         txid,
         outputIndex,
         undefined,
-        false
+        undefined,
+        true
       )
       if (UTXO === undefined || UTXO === null) continue
 
       // Get the history for this utxo and construct a BRC-8 Envelope
       const output = await this.getUTXOHistory(UTXO, history, 0)
-      if (output !== undefined && output !== null) {
+      if (output?.beef !== undefined) {
         hydratedOutputs.push({
           beef: output.beef,
           outputIndex: output.outputIndex
@@ -548,7 +554,7 @@ export class Engine {
       if (Array.isArray(syncEndpoints)) {
         await Promise.all(syncEndpoints.map(async endpoint => {
           // Sync to each host that is associated with this topic
-          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint, topic), 0, `[GASP Sync of ${topic} with ${endpoint}] `, true)
+          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint, topic), 0, `[GASP Sync of ${topic} with ${endpoint}]`, true)
           await gasp.sync()
         }))
       }
@@ -591,7 +597,7 @@ export class Engine {
    */
   async provideForeignGASPNode(graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
     const hydrator = async (output: Output | null): Promise<GASPNode> => {
-      if (output === undefined || output === null) {
+      if (output?.beef === undefined) {
         throw new Error('No matching output found!')
       }
 
@@ -677,6 +683,10 @@ export class Engine {
       return output
     }
 
+    if (output.beef === undefined) {
+      throw new Error('Output must have associated transaction BEEF!')
+    }
+
     // Determine if history traversal should continue for the current node
     let shouldTraverseHistory
     if (typeof historySelector !== 'number') {
@@ -699,7 +709,7 @@ export class Engine {
       // Find the child outputs for each utxo consumed by the current output
       const childHistories = (await Promise.all(
         outputsConsumed.map(async (outputIdentifier) => {
-          const output = await this.storage.findOutput(outputIdentifier.txid, outputIdentifier.outputIndex)
+          const output = await this.storage.findOutput(outputIdentifier.txid, outputIdentifier.outputIndex, undefined, undefined, true)
 
           // Make sure an output was found
           if (output === undefined || output === null) {
@@ -720,6 +730,9 @@ export class Engine {
             : input.sourceTransaction?.id('hex')
           return sourceTXID === output.txid && input.sourceOutputIndex === output.outputIndex
         })
+        if (input.beef === undefined) {
+          throw new Error('Input must have associated transaction BEEF!')
+        }
         tx.inputs[inputIndex].sourceTransaction = Transaction.fromBEEF(input.beef)
       }
       const beef = tx.toBEEF()
@@ -730,9 +743,9 @@ export class Engine {
     } catch (e) {
       // Handle any errors that occurred
       // Note: Test this!
-      console.error(`Error retrieving UTXO history: ${e}`)
+      console.error(`Error retrieving UTXO history: ${e} `)
       // return []
-      throw new Error(`Error retrieving UTXO history: ${e}`)
+      throw new Error(`Error retrieving UTXO history: ${e} `)
     }
   }
 
@@ -784,7 +797,7 @@ export class Engine {
         return await this.deleteUTXODeep(staleOutput)
       })
     } catch (error) {
-      throw new Error(`Failed to delete all stale outputs: ${error as string}`)
+      throw new Error(`Failed to delete all stale outputs: ${error as string} `)
     }
   }
 
@@ -822,6 +835,10 @@ export class Engine {
    * @param proof - The merklePath proving txid is a mined transaction hash
    */
   private async updateMerkleProof(output: Output, txid: string, proof: MerklePath): Promise<void> {
+    if (output.beef === undefined) {
+      throw new Error('Output must have associated transaction BEEF!')
+    }
+
     const tx = Transaction.fromBEEF(output.beef)
     if (tx.merklePath !== undefined) {
       // Update the merkle path to handle potential reorgs
@@ -833,11 +850,11 @@ export class Engine {
     this.updateInputProofs(tx, txid, proof)
 
     // Update the output's BEEF in the storage DB
-    await this.storage.updateOutputBeef(output.txid, output.outputIndex, output.topic, tx.toBEEF())
+    await this.storage.updateTransactionBEEF(output.txid, tx.toBEEF())
 
     // Recursively update the consumedBy outputs
     for (const consumingOutput of output.consumedBy) {
-      const consumedOutputs = await this.storage.findOutputsForTransaction(consumingOutput.txid)
+      const consumedOutputs = await this.storage.findOutputsForTransaction(consumingOutput.txid, true)
       for (const consumedOutput of consumedOutputs) {
         await this.updateMerkleProof(consumedOutput, txid, proof)
       }
@@ -852,7 +869,7 @@ export class Engine {
    * @param blockHeight - The block height associated with the incoming merkle proof.
    */
   async handleNewMerkleProof(txid: string, proof: MerklePath, blockHeight?: number): Promise<void> {
-    const outputs = await this.storage.findOutputsForTransaction(txid)
+    const outputs = await this.storage.findOutputsForTransaction(txid, true)
 
     if (outputs === undefined || outputs.length === 0) {
       throw new Error('Could not find matching transaction outputs for proof ingest!')
@@ -1071,9 +1088,9 @@ export class OverlayGASPStorage implements GASPStorage {
    * @returns 
    */
   async hydrateGASPNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
-    const output = await this.engine.storage.findOutput(txid, outputIndex)
+    const output = await this.engine.storage.findOutput(txid, outputIndex, undefined, undefined, true)
 
-    if (output === undefined || output === null) {
+    if (output?.beef === undefined) {
       throw new Error('No matching output found!')
     }
 
@@ -1152,7 +1169,8 @@ export class OverlayGASPStorage implements GASPStorage {
     for (const inputNodeId of Object.keys(response.requestedInputs)) {
       const [txid, outputIndex] = inputNodeId.split('.')
       const found = await this.engine.storage.findOutput(txid, Number(outputIndex), this.topic)
-      if (found) {
+      if (found !== null && found !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete response.requestedInputs[inputNodeId]
       }
     }

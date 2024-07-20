@@ -61,9 +61,10 @@ describe('OverlayGASPStorage', () => {
   })
 
   describe('hydrateGASPNode', () => {
-    it('should throw an error', async () => {
-      await expect(overlayStorage.hydrateGASPNode('graphID', 'txid', 0, false)).rejects.toThrow('GASP node hydration Not supported!')
+    it('should throw an error if no output is found', async () => {
+      await expect(overlayStorage.hydrateGASPNode('graphID', 'txid', 0, false)).rejects.toThrow('No matching output found!')
     })
+    // TODO: Further test coverage
   })
 
   describe('findNeededInputs', () => {

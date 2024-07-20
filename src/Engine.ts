@@ -149,7 +149,6 @@ export class Engine {
       const outputs = await Promise.all(outputPromises)
       this.endTime(`previousOutputQuery_${txid.substring(0, 10)}`)
 
-      const previousCoins: number[] = []
       outputs.forEach((output, i) => {
         if (output !== undefined && output !== null) {
           previousCoins.push(i)

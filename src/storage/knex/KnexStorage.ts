@@ -221,9 +221,9 @@ export class KnexStorage implements Storage {
   async doesAppliedTransactionExist(tx: { txid: string, topic: string }): Promise<boolean> {
     const result = await this.knex('applied_transactions')
       .where({ txid: tx.txid, topic: tx.topic })
-      .count('txid as count')
+      .select(this.knex.raw('1'))
       .first()
 
-    return Number(result?.count) > 0
+    return !!result
   }
 }

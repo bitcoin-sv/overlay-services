@@ -30,6 +30,8 @@ export class Engine {
    * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
    * @param {string} slapTrackers - SLAP domains we know to bootstrap the system
    * @param {SyncConfiguration} syncConfiguration — Configuration object describing historical synchronization of topics.
+   * @param {boolean} logTime - Enables / disables the timing logs for various operations in the Overlay submit route.
+   * @param {string} logPrefix - Supports overriding the log prefix with a custom string.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -41,7 +43,9 @@ export class Engine {
     public slapTrackers?: string[],
     public broadcaster?: Broadcaster,
     public advertiser?: Advertiser,
-    public syncConfiguration?: SyncConfiguration
+    public syncConfiguration?: SyncConfiguration,
+    public logTime = false,
+    public logPrefix = '[OVERLAY_ENGINE] '
   ) {
     // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all overlay topics, except for 'tm_ship' and 'tm_slap'.
     // For these two topics, any existing trackers are combined with the provided shipTrackers and slapTrackers omitting any duplicates.
@@ -75,11 +79,24 @@ export class Engine {
     }
   }
 
+  // Helper functions for logging timings
+  private startTime(label: string): void {
+    if (this.logTime) {
+      console.time(`${this.logPrefix} ${label}`)
+    }
+  }
+  private endTime(label: string): void {
+    if (this.logTime) {
+      console.timeEnd(`${this.logPrefix} ${label}`)
+    }
+  }
+
   /**
    * Submits a transaction for processing by Overlay Services.
    * @param {TaggedBEEF} taggedBEEF - The transaction to process
    * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
    * @param {string} mode — Indicates the submission behavior, whether historical or current. Historical transactions are not broadcast or propagated.
+   * @param {boolean} log
    * 
    * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
    * 
@@ -95,11 +112,13 @@ export class Engine {
     // Validate the transaction SPV information
     const tx = Transaction.fromBEEF(taggedBEEF.beef)
     const txid = tx.id('hex')
-    console.time(`submit_${txid}`)
-    // console.time(`chainTracker_${txid.substring(0, 10)}`)
-    // const txValid = await tx.verify(this.chainTracker) // Note: also verifying historical-tx with SPV. Needed?
-    // console.timeEnd(`chainTracker_${txid.substring(0, 10)}`)
-    // if (!txValid) throw new Error('Unable to verify SPV information.')
+
+    this.startTime(`submit_${txid}`)
+    this.startTime(`chainTracker_${txid.substring(0, 10)}`)
+    const txValid = await tx.verify(this.chainTracker)
+    this.endTime(`chainTracker_${txid.substring(0, 10)}`)
+
+    if (!txValid) throw new Error('Unable to verify SPV information.')
 
     const steak: STEAK = {}
     let admissableOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
@@ -112,9 +131,9 @@ export class Engine {
       }
 
       // Check for duplicate transactions
-      console.time(`dupCheck_${txid.substring(0, 10)}`)
+      this.startTime(`dupCheck_${txid.substring(0, 10)}`)
       const dupeCheck = await this.storage.doesAppliedTransactionExist({ txid, topic })
-      console.timeEnd(`dupCheck_${txid.substring(0, 10)}`)
+      this.endTime(`dupCheck_${txid.substring(0, 10)}`)
       if (dupeCheck) {
         steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
         return
@@ -125,9 +144,10 @@ export class Engine {
         const previousTXID = input.sourceTXID || input.sourceTransaction?.id('hex') as string
         return this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
       })
-      console.time(`previousOutputQuery_${txid.substring(0, 10)}`)
+
+      this.startTime(`previousOutputQuery_${txid.substring(0, 10)}`)
       const outputs = await Promise.all(outputPromises)
-      console.timeEnd(`previousOutputQuery_${txid.substring(0, 10)}`)
+      this.endTime(`previousOutputQuery_${txid.substring(0, 10)}`)
 
       const previousCoins: number[] = []
       outputs.forEach((output, i) => {
@@ -154,19 +174,18 @@ export class Engine {
       })
 
       // Determine which outputs are admissible
-      // const admissibleOutputsPromise = (async () => {
-      //   try {
-      //     console.time(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-      //     admissableOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
-      //     console.timeEnd(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-      //   } catch (_) {
-      //     steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
-      //   }
-      // })()
+      const admissibleOutputsPromise = (async () => {
+        try {
+          this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
+          admissableOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
+          this.endTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
+        } catch (_) {
+          steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
+        }
+      })()
 
       // Wait for both tasks to complete
-      await Promise.all([markSpentPromises])
-      admissableOutputs.outputsToAdmit = [0]
+      await Promise.all([markSpentPromises, admissibleOutputsPromise])
       // Keep track of what outputs were admitted for what topic
       steak[topic] = admissableOutputs
     })
@@ -174,18 +193,18 @@ export class Engine {
     await Promise.all(topicPromises)
 
     // Broadcast the transaction if not historical and broadcaster is configured
-    console.time(`broadcast_${txid.substring(0, 10)}`)
+    this.startTime(`broadcast_${txid.substring(0, 10)}`)
     if (mode !== 'historical-tx' && this.broadcaster !== undefined) {
       const response = await this.broadcaster.broadcast(tx)
       if (isBroadcastFailure(response)) {
         throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
       }
     }
-    console.timeEnd(`broadcast_${txid.substring(0, 10)}`)
+    this.endTime(`broadcast_${txid.substring(0, 10)}`)
 
     // Call the callback function if it is provided
     if (onSteakReady !== undefined) {
-      console.timeEnd(`submit_${txid}`)
+      this.endTime(`submit_${txid}`)
       onSteakReady(steak)
     }
 
@@ -220,19 +239,19 @@ export class Engine {
       }
 
       // Remove stale outputs recursively
-      console.time(`lookForStaleOutputs_${txid.substring(0, 10)}`)
+      this.startTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
       await Promise.all(staleCoins.map(async coin => {
         const output = await this.storage.findOutput(coin.txid, coin.outputIndex, topic)
         if (output !== undefined && output !== null) {
           await this.deleteUTXODeep(output)
         }
       }))
-      console.timeEnd(`lookForStaleOutputs_${txid.substring(0, 10)}`)
+      this.endTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
 
       // Handle admittance and notification of incoming UTXOs
       const newUTXOs: Array<{ txid: string, outputIndex: number }> = []
       await Promise.all(outputsToAdmit.map(async outputIndex => {
-        console.time(`insertNewOutput_${txid.substring(0, 10)}`)
+        this.startTime(`insertNewOutput_${txid.substring(0, 10)}`)
         await this.storage.insertOutput({
           txid,
           outputIndex,
@@ -244,14 +263,14 @@ export class Engine {
           consumedBy: [],
           outputsConsumed
         })
-        console.timeEnd(`insertNewOutput_${txid.substring(0, 10)}`)
+        this.endTime(`insertNewOutput_${txid.substring(0, 10)}`)
         newUTXOs.push({ txid, outputIndex })
-        console.time(`notifyLookupService${txid.substring(0, 10)}`)
+        this.startTime(`notifyLookupService${txid.substring(0, 10)}`)
         await Promise.all(Object.values(this.lookupServices).map(l => l.outputAdded?.(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)))
-        console.timeEnd(`notifyLookupService${txid.substring(0, 10)}`)
+        this.endTime(`notifyLookupService${txid.substring(0, 10)}`)
       }))
 
-      console.time(`outputConsumed_${txid.substring(0, 10)}`)
+      this.startTime(`outputConsumed_${txid.substring(0, 10)}`)
       // Update each output consumed to know who consumed it and insert applied transaction in parallel
       await Promise.all([
         ...outputsConsumed.map(async output => {
@@ -266,7 +285,7 @@ export class Engine {
           topic
         })
       ])
-      console.timeEnd(`outputConsumed_${txid.substring(0, 10)}`)
+      this.endTime(`outputConsumed_${txid.substring(0, 10)}`)
     }
 
     // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
@@ -274,7 +293,7 @@ export class Engine {
       return steak
     }
 
-    console.time(`transactionPropgation_${txid.substring(0, 10)}`)
+    this.startTime(`transactionPropgation_${txid.substring(0, 10)}`)
     // Propagate transaction to other nodes according to synchronization agreements
     // 1. Find nodes that host the topics associated with admissable outputs
     // We want to figure out which topics we actually care about(because their associated outputs were admitted)
@@ -371,7 +390,7 @@ export class Engine {
         console.error('Error during broadcasting:', error)
       }
     }
-    console.timeEnd(`transactionPropgation_${txid.substring(0, 10)}`)
+    this.endTime(`transactionPropgation_${txid.substring(0, 10)}`)
 
     // Immediately return from the function without waiting for the promises to resolve.
     return steak

@@ -763,7 +763,7 @@ describe('BSV Overlay Services Engine', () => {
             query: { name: 'Bob' }
           })
           expect(mockStorageEngine.findOutput).toHaveBeenCalledWith(
-            'mockTXID', 0, undefined, false
+            'mockTXID', 0, undefined, undefined, true
           )
         })
         it('Calls getUTXOHistory with the correct UTXO and history parameters', async () => {

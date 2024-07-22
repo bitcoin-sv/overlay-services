@@ -1,4 +1,4 @@
-import { OverlayGASPRemote } from '../Engine'
+import { OverlayGASPRemote } from '../GASP/OverlayGASPRemote'
 import { GASPInitialRequest, GASPInitialResponse, GASPNode } from '@bsv/gasp'
 
 global.fetch = jest.fn(async () => {

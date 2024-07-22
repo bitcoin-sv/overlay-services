@@ -1,4 +1,5 @@
-import { Engine } from '../Engine'
+// Note: References Engine from dist due to issues with compiled code references in Engine.ts
+import { Engine } from '../../dist/cjs/src/Engine'
 import { LookupService } from '../LookupService'
 import { TopicManager } from '../TopicManager'
 import { AdmittanceInstructions } from '../AdmittanceInstructions'

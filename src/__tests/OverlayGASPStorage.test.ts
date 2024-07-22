@@ -1,4 +1,4 @@
-import { GraphNode, OverlayGASPStorage } from '../Engine'
+import { GraphNode, OverlayGASPStorage } from '../GASP/OverlayGASPStorage'
 import { Transaction, MerklePath } from '@bsv/sdk'
 import { GASPNode } from '@bsv/gasp'
 

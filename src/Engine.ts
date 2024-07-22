@@ -299,7 +299,7 @@ export class Engine {
     this.startTime(`transactionPropagation_${txid.substring(0, 10)}`)
     // Propagate transaction to other nodes according to synchronization agreements
     // 1. Find nodes that host the topics associated with admissable outputs
-    // We want to figure out which topics we actually care about(because their associated outputs were admitted)
+    // We want to figure out which topics we actually care about (because their associated outputs were admitted)
     // AND if the topic was not admitted we want to remove it from the list of topics we care about.
     const relevantTopics = taggedBEEF.topics.filter(topic =>
       steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0

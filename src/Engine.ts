@@ -25,7 +25,7 @@ export class Engine {
    * @param {[key: string]: TopicManager} managers - manages topic admittance
    * @param {[key: string]: LookupService} lookupServices - manages UTXO lookups
    * @param {Storage} storage - for interacting with internally-managed persistent data
-   * @param {ChainTracker} chainTracker - Verifies SPV data associated with transactions
+   * @param {ChainTracker | 'scripts only'} chainTracker - Verifies SPV data associated with transactions
    * @param {string} [hostingURL] - The URL this engine is hosted at. Required if going to support peer-discovery with an advertiser.
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
@@ -39,7 +39,7 @@ export class Engine {
     public managers: { [key: string]: TopicManager },
     public lookupServices: { [key: string]: LookupService },
     public storage: Storage,
-    public chainTracker: ChainTracker,
+    public chainTracker: ChainTracker | 'scripts only',
     public hostingURL?: string,
     public shipTrackers?: string[],
     public slapTrackers?: string[],

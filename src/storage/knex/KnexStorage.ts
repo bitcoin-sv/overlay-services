@@ -9,38 +9,79 @@ export class KnexStorage implements Storage {
     this.knex = knex
   }
 
-  async findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean): Promise<Output | null> {
+  async findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean, includeBEEF: boolean = false): Promise<Output | null> {
     const search: {
-      txid: string
-      outputIndex: number
-      topic?: string
-      spent?: boolean
+      'outputs.txid': string
+      'outputs.outputIndex': number
+      'outputs.topic'?: string
+      'outputs.spent'?: boolean
     } = {
-      txid,
-      outputIndex
+      'outputs.txid': txid,
+      'outputs.outputIndex': outputIndex
     }
-    if (topic !== undefined) search.topic = topic
-    if (spent !== undefined) search.spent = spent
-    const [output] = await this.knex('outputs').where(search).select(
-      'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
-    )
+    if (topic !== undefined) search['outputs.topic'] = topic
+    if (spent !== undefined) search['outputs.spent'] = spent
+
+    // Base query to get the output
+    const query = this.knex('outputs').where(search)
+
+    // Select necessary fields from outputs and conditionally include beef from transactions
+    const selectFields = [
+      'outputs.txid',
+      'outputs.outputIndex',
+      'outputs.outputScript',
+      'outputs.topic',
+      'outputs.satoshis',
+      'outputs.outputsConsumed',
+      'outputs.spent',
+      'outputs.consumedBy'
+    ]
+
+    if (includeBEEF) {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      query.leftJoin('transactions', 'outputs.txid', 'transactions.txid')
+      selectFields.push('transactions.beef')
+    }
+
+    const output = await query.select(selectFields).first()
+
     if (output === undefined || output === null) {
       return null
     }
+
     return {
       ...output,
       outputScript: [...output.outputScript],
-      beef: [...output.beef],
+      beef: includeBEEF ? (output.beef !== undefined ? [...output.beef] : undefined) : undefined,
       spent: Boolean(output.spent),
       outputsConsumed: JSON.parse(output.outputsConsumed),
       consumedBy: JSON.parse(output.consumedBy)
     }
   }
 
-  async findOutputsForTransaction(txid: string): Promise<Output[]> {
-    const outputs = await this.knex('outputs').where({ txid }).select(
-      'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
-    )
+  async findOutputsForTransaction(txid: string, includeBEEF: boolean = false): Promise<Output[]> {
+    // Base query to get outputs
+    const query = this.knex('outputs').where({ 'outputs.txid': txid })
+
+    // Select necessary fields from outputs and conditionally include beef from transactions
+    const selectFields = [
+      'outputs.txid',
+      'outputs.outputIndex',
+      'outputs.outputScript',
+      'outputs.topic',
+      'outputs.satoshis',
+      'outputs.outputsConsumed',
+      'outputs.spent',
+      'outputs.consumedBy'
+    ]
+
+    if (includeBEEF) {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      query.leftJoin('transactions', 'outputs.txid', 'transactions.txid')
+      selectFields.push('transactions.beef')
+    }
+
+    const outputs = await query.select(selectFields)
 
     if (outputs === undefined || outputs.length === 0) {
       return []
@@ -49,24 +90,42 @@ export class KnexStorage implements Storage {
     return outputs.map(output => ({
       ...output,
       outputScript: [...output.outputScript],
-      beef: [...output.beef],
+      beef: includeBEEF ? (output.beef !== undefined ? [...output.beef] : undefined) : undefined,
       spent: Boolean(output.spent),
       outputsConsumed: JSON.parse(output.outputsConsumed),
       consumedBy: JSON.parse(output.consumedBy)
     }))
   }
 
-  async findUTXOsForTopic(topic: string, since?: number): Promise<Output[]> {
-    const query = this.knex('outputs').where({ topic, spent: false })
+  async findUTXOsForTopic(topic: string, since?: number, includeBEEF: boolean = false): Promise<Output[]> {
+    // Base query to get outputs
+    const query = this.knex('outputs').where({ 'outputs.topic': topic, 'outputs.spent': false })
 
     // If provided, additionally filters UTXOs by block height
     if (since !== undefined && since > 0) {
-      await query.andWhere('blockHeight', '>=', since)
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      query.andWhere('outputs.blockHeight', '>=', since)
     }
 
-    const outputs = await query.select(
-      'txid', 'outputIndex', 'outputScript', 'topic', 'satoshis', 'beef', 'outputsConsumed', 'spent', 'consumedBy'
-    )
+    // Select necessary fields from outputs and conditionally include beef from transactions
+    const selectFields = [
+      'outputs.txid',
+      'outputs.outputIndex',
+      'outputs.outputScript',
+      'outputs.topic',
+      'outputs.satoshis',
+      'outputs.outputsConsumed',
+      'outputs.spent',
+      'outputs.consumedBy'
+    ]
+
+    if (includeBEEF) {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      query.leftJoin('transactions', 'outputs.txid', 'transactions.txid')
+      selectFields.push('transactions.beef')
+    }
+
+    const outputs = await query.select(selectFields)
 
     if (outputs === undefined || outputs.length === 0) {
       return []
@@ -75,7 +134,7 @@ export class KnexStorage implements Storage {
     return outputs.map(output => ({
       ...output,
       outputScript: [...output.outputScript],
-      beef: [...output.beef],
+      beef: includeBEEF ? (output.beef !== undefined ? [...output.beef] : undefined) : undefined,
       spent: Boolean(output.spent),
       outputsConsumed: JSON.parse(output.outputsConsumed),
       consumedBy: JSON.parse(output.consumedBy)
@@ -83,22 +142,42 @@ export class KnexStorage implements Storage {
   }
 
   async deleteOutput(txid: string, outputIndex: number, topic: string): Promise<void> {
-    await this.knex('outputs').where({
-      txid, outputIndex, topic
-    }).del()
+    await this.knex.transaction(async trx => {
+      // Delete the specific output
+      await trx('outputs').where({ txid, outputIndex }).del()
+
+      // Check how many outputs reference the same transaction
+      const remainingOutputs = await trx('outputs').where({ txid }).count('* as count').first()
+
+      if (remainingOutputs !== undefined && Number(remainingOutputs.count) === 0) {
+        // If no more outputs reference the transaction, delete the beef
+        await trx('transactions').where({ txid }).del()
+      }
+    })
   }
 
   async insertOutput(output: Output): Promise<void> {
-    await this.knex('outputs').insert({
+    const insertPromises = [this.knex('outputs').insert({
       txid: output.txid,
       outputIndex: Number(output.outputIndex),
       outputScript: Buffer.from(output.outputScript),
       topic: output.topic,
       satoshis: Number(output.satoshis),
-      beef: Buffer.from(output.beef),
       outputsConsumed: JSON.stringify(output.outputsConsumed),
       consumedBy: JSON.stringify(output.consumedBy),
       spent: output.spent
+    })]
+
+    if (output.beef !== undefined) {
+      const insertTransactionPromise = this.knex('transactions').insert({
+        txid: output.txid,
+        beef: Buffer.from(output.beef)
+      }).onConflict('txid').ignore()
+      insertPromises.push(insertTransactionPromise)
+    }
+
+    await this.knex.transaction(async trx => {
+      await Promise.all(insertPromises.map(promise => promise.transacting(trx)))
     })
   }
 
@@ -118,11 +197,9 @@ export class KnexStorage implements Storage {
     }).update('consumedBy', consumedBy)
   }
 
-  async updateOutputBeef(txid: string, outputIndex: number, topic: string, beef: number[]): Promise<void> {
-    await this.knex('outputs').where({
-      txid,
-      outputIndex,
-      topic
+  async updateTransactionBEEF(txid: string, beef: number[]): Promise<void> {
+    await this.knex('transactions').where({
+      txid
     }).update('beef', Buffer.from(beef))
   }
 
@@ -142,10 +219,11 @@ export class KnexStorage implements Storage {
   }
 
   async doesAppliedTransactionExist(tx: { txid: string, topic: string }): Promise<boolean> {
-    const appliedTransactions = await this.knex('applied_transactions').where({
-      txid: tx.txid,
-      topic: tx.topic
-    }).select('txid', 'topic')
-    return appliedTransactions.length > 0
+    const result = await this.knex('applied_transactions')
+      .where({ txid: tx.txid, topic: tx.topic })
+      .select(this.knex.raw('1'))
+      .first()
+
+    return !!result
   }
 }

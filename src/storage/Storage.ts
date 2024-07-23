@@ -27,13 +27,13 @@ export interface Storage {
    * @param topic — The topic in which the output is stored
    * @param spent — Whether the output must be spent to be returned
    */
-  findOutput: (txid: string, outputIndex: number, topic?: string, spent?: boolean) => Promise<Output | null>
+  findOutput: (txid: string, outputIndex: number, topic?: string, spent?: boolean, includeBEEF?: boolean) => Promise<Output | null>
 
   /**
    * Finds outputs with a matching transaction ID from storage
    * @param txid — TXID of the outputs to find
    */
-  findOutputsForTransaction: (txid: string) => Promise<Output[]>
+  findOutputsForTransaction: (txid: string, includeBEEF?: boolean) => Promise<Output[]>
 
   /**
    * Finds current UTXOs that have been admitted into a given topic
@@ -41,7 +41,7 @@ export interface Storage {
    * @param since - Optional parameter indicating the minimum date (timestamp? block height?) to retrieve matching UTXOs from. TODO: We need to decide about which time format to use for synchronization.
    * @returns A promise that resolves to an array of matching UTXOs.
    */
-  findUTXOsForTopic: (topic: string, since?: number) => Promise<Output[]>
+  findUTXOsForTopic: (topic: string, since?: number, includeBEEF?: boolean) => Promise<Output[]>
 
   /**
    * Deletes an output from storage
@@ -72,13 +72,11 @@ export interface Storage {
   }>) => Promise<void>
 
   /**
-   * Updates the beef data on an output
-   * @param txid — TXID of the output to update
-   * @param outputIndex — Index of the output to update
-   * @param topic — Topic in which the output should be updated
+   * Updates the beef data for a transaction
+   * @param txid — TXID of the transaction to update
    * @param beef - BEEF data to update
    */
-  updateOutputBeef: (txid: string, outputIndex: number, topic: string, beef: number[]) => Promise<void>
+  updateTransactionBEEF: (txid: string, beef: number[]) => Promise<void>
 
 
   /**

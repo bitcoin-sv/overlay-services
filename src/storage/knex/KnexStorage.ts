@@ -53,7 +53,7 @@ export class KnexStorage implements Storage {
       ...output,
       outputScript: [...output.outputScript],
       beef: includeBEEF ? (output.beef !== undefined ? [...output.beef] : undefined) : undefined,
-      spent: Boolean(output.spent),
+      spent: output.spent,
       outputsConsumed: JSON.parse(output.outputsConsumed),
       consumedBy: JSON.parse(output.consumedBy)
     }
@@ -181,12 +181,12 @@ export class KnexStorage implements Storage {
     })
   }
 
-  async markUTXOAsSpent(txid: string, outputIndex: number, topic?: string): Promise<void> {
+  async markUTXOAsSpent(txid: string, outputIndex: number, spent: string, topic?: string): Promise<void> {
     await this.knex('outputs').where({
       txid,
       outputIndex,
       topic
-    }).update('spent', true)
+    }).update('spent', spent)
   }
 
   async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: Array<{ txid: string, outputIndex: number }>): Promise<void> {

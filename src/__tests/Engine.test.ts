@@ -26,7 +26,7 @@ const mockOutput: Output = {
   topic: 'hello',
   satoshis: exampleTX.outputs[0].satoshis,
   beef: exampleBeef,
-  spent: false,
+  spent: null,
   outputsConsumed: [],
   consumedBy: []
 }
@@ -151,7 +151,7 @@ describe('BSV Overlay Services Engine', () => {
       topic: 'hello',
       satoshis: exampleTX.outputs[0].satoshis,
       beef: exampleBeef,
-      spent: false,
+      spent: null,
       outputsConsumed: [],
       consumedBy: []
     }
@@ -167,7 +167,7 @@ describe('BSV Overlay Services Engine', () => {
         topic: 'hello',
         satoshis: tx.outputs[0].satoshis,
         beef: tx.toBEEF(),
-        spent: false,
+        spent: null,
         outputsConsumed: [],
         consumedBy: []
       }
@@ -216,7 +216,7 @@ describe('BSV Overlay Services Engine', () => {
           topic: 'hello',
           satoshis: tx.outputs[outputIndex].satoshis,
           beef: tx.toBEEF(),
-          spent: false,
+          spent: null,
           outputsConsumed: [],
           consumedBy: []
         }
@@ -421,7 +421,8 @@ describe('BSV Overlay Services Engine', () => {
             topics: ['Hello']
           })
           expect(mockStorageEngine.findOutput).toHaveBeenCalled()
-          expect(mockStorageEngine.markUTXOAsSpent).toHaveBeenCalledWith(exampleTXID, 0, 'Hello')
+          // TODO: The below check makes no sense, fix it.
+          expect(mockStorageEngine.markUTXOAsSpent).toHaveBeenCalledWith(exampleTXID, 0, exampleTXID, 'Hello')
         })
       })
       it('Identifies admissible outputs with the appropriate topic manager', async () => {

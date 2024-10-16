@@ -7,6 +7,7 @@ export type LookupAnswer = {
   outputs: Array<{
     beef: number[]
     outputIndex: number
+    spent?: null | string
   }>
 } | {
   type: 'freeform'

@@ -161,7 +161,7 @@ export class Engine {
       const markSpentPromises = outputs.map(async (output) => {
         if (output !== undefined && output !== null) {
           try {
-            await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
+            await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, txid, topic)
             await Promise.all(Object.values(this.lookupServices).map(async l => {
               try {
                 await l.outputSpent?.(output.txid, output.outputIndex, topic)
@@ -260,7 +260,7 @@ export class Engine {
           outputScript: tx.outputs[outputIndex].lockingScript.toBinary(),
           satoshis: tx.outputs[outputIndex].satoshis as number,
           topic,
-          spent: false,
+          spent: null,
           beef: taggedBEEF.beef,
           consumedBy: [],
           outputsConsumed

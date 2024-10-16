@@ -55,9 +55,10 @@ export interface Storage {
   * Updates a UTXO as spent
   * @param txid — TXID of the output to update
   * @param outputIndex — Index of the output to update
+  * @param spent — The txid of the transaction that spent the output
   * @param topic — Topic in which the output should be updated
   */
-  markUTXOAsSpent: (txid: string, outputIndex: number, topic: string) => Promise<void>
+  markUTXOAsSpent: (txid: string, outputIndex: number, spent: string, topic: string) => Promise<void>
 
   /**
   * Updates which outputs are consumed by this output
@@ -77,7 +78,6 @@ export interface Storage {
    * @param beef - BEEF data to update
    */
   updateTransactionBEEF: (txid: string, beef: number[]) => Promise<void>
-
 
   /**
    * Updates the block height on an output

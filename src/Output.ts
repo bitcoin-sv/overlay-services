@@ -13,7 +13,7 @@ export type Output = {
   /** topic to which the output belongs */
   topic: string
   /** Whether the output is spent */
-  spent: boolean
+  spent: null | string
   /** Outputs consumed by the transaction associated with the output */
   outputsConsumed: Array<{
     txid: string

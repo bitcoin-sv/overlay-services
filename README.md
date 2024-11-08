@@ -39,7 +39,7 @@ In your server's main file, you can set everything up. Create a new Engine to ru
 const express = require('express')
 const bodyparser = require('body-parser')
 const { Engine, KnexStorage, HelloTopicManager, HelloLookupService, HelloStorageEngine } = require('@bsv/overlay')
-const { WoChain } = require('@bsv/sdk')
+import { WhatsOnChain, NodejsHttpClient, ARC, ArcConfig, MerklePath } from '@bsv/sdk'
 // Populate a Knexfile with your database credentials
 const knex = require('knex')(require('../knexfile.js'))
 const app = express()
@@ -58,7 +58,18 @@ const engine = new Engine(
     },
     new KnexStorageEngine({
       knex
-    })
+    }),
+    new CombinatorialChainTracker([
+      new WhatsOnChain(
+        NODE_ENV === 'production' ? 'main' : 'test',
+        {
+          httpClient: new NodejsHttpClient(https)
+        })
+    ]),
+    HOSTING_DOMAIN as string,
+    SHIP_TRACKERS,
+    SLAP_TRACKERS,
+    new ARC('https://arc.taal.com', arcConfig)
   )
 
 // This allows the API to be used everywhere when CORS is enforced
@@ -133,8 +144,18 @@ app.get(`/getDocumentationForLookupServiceProvider`, async (req, res) => {
 // Submit transactions and facilitate lookup requests
 app.post(`/submit`, async (req, res) => {
   try {
-    const result = await engine.submit(req.body)
-    return res.status(200).json(result)
+    // Parse out the topics and construct the tagged BEEF
+    const topics = JSON.parse(req.headers['x-topics'] as string)
+    const taggedBEEF: TaggedBEEF = {
+      beef: Array.from(req.body as number[]),
+      topics
+    }
+
+    // Using a callback function, we can just return once our steak is ready
+    // instead of having to wait for all the broadcasts to occur.
+    await engine.submit(taggedBEEF, (steak: STEAK) => {
+      return res.status(200).json(steak)
+    })
   } catch (error) {
     return res.status(400).json({
       status: 'error',
@@ -154,6 +175,70 @@ app.post(`/lookup`, async (req, res) => {
       description: error.message
     })
   }
+})
+
+app.post('/arc-ingest', (req, res) => {
+  (async () => {
+    try {
+      const merklePath = MerklePath.fromHex(req.body.merklePath)
+      await engine.handleNewMerkleProof(req.body.txid, merklePath, req.body.blockHeight)
+      return res.status(200).json({ status: 'success', message: 'transaction status updated' })
+    } catch (error) {
+      console.error(error)
+      return res.status(400).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'An unknown error occurred'
+      })
+    }
+  })().catch(() => {
+    res.status(500).json({
+      status: 'error',
+      message: 'Unexpected error'
+    })
+  })
+})
+
+app.post('/requestSyncResponse', (req, res) => {
+  (async () => {
+    try {
+      const topic = req.headers['x-bsv-topic'] as string
+      const response = await engine.provideForeignSyncResponse(req.body, topic)
+      return res.status(200).json(response)
+    } catch (error) {
+      console.error(error)
+      return res.status(400).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'An unknown error occurred'
+      })
+    }
+  })().catch(() => {
+    res.status(500).json({
+      status: 'error',
+      message: 'Unexpected error'
+    })
+  })
+})
+
+app.post('/requestForeignGASPNode', (req, res) => {
+  (async () => {
+    try {
+      console.log(req.body)
+      const { graphID, txid, outputIndex, metadata } = req.body
+      const response = await engine.provideForeignGASPNode(graphID, txid, outputIndex)
+      return res.status(200).json(response)
+    } catch (error) {
+      console.error(error)
+      return res.status(400).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'An unknown error occurred'
+      })
+    }
+  })().catch(() => {
+    res.status(500).json({
+      status: 'error',
+      message: 'Unexpected error'
+    })
+  })
 })
 
 // 404, all other routes are not found.

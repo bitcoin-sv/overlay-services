@@ -34,6 +34,7 @@ export class Engine {
    * @param {SyncConfiguration} syncConfiguration — Configuration object describing historical synchronization of topics.
    * @param {boolean} logTime - Enables / disables the timing logs for various operations in the Overlay submit route.
    * @param {string} logPrefix - Supports overriding the log prefix with a custom string.
+   * @param {boolean} throwOnBroadcastFailure - Enables / disables throwing an error when a transaction broadcast failure is detected.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -47,7 +48,8 @@ export class Engine {
     public advertiser?: Advertiser,
     public syncConfiguration?: SyncConfiguration,
     public logTime = false,
-    public logPrefix = '[OVERLAY_ENGINE] '
+    public logPrefix = '[OVERLAY_ENGINE] ',
+    public throwOnBroadcastFailure = false
   ) {
     // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all overlay topics, except for 'tm_ship' and 'tm_slap'.
     // For these two topics, any existing trackers are combined with the provided shipTrackers and slapTrackers omitting any duplicates.
@@ -122,7 +124,7 @@ export class Engine {
     this.endTime(`chainTracker_${txid.substring(0, 10)}`)
 
     const steak: STEAK = {}
-    let admissableOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
+    let admissibleOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
     const previousCoins: number[] = []
 
     // Parallelize the topic processing
@@ -179,7 +181,7 @@ export class Engine {
       const admissibleOutputsPromise = (async () => {
         try {
           this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-          admissableOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
+          admissibleOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
           this.endTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
         } catch (_) {
           steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
@@ -189,7 +191,7 @@ export class Engine {
       // Wait for both tasks to complete
       await Promise.all([markSpentPromises, admissibleOutputsPromise])
       // Keep track of what outputs were admitted for what topic
-      steak[topic] = admissableOutputs
+      steak[topic] = admissibleOutputs
     })
 
     await Promise.all(topicPromises)
@@ -198,8 +200,10 @@ export class Engine {
     this.startTime(`broadcast_${txid.substring(0, 10)}`)
     if (mode !== 'historical-tx' && this.broadcaster !== undefined) {
       const response = await this.broadcaster.broadcast(tx)
-      if (isBroadcastFailure(response)) {
-        throw new Error(`Failed to broadcast transaction! Error: ${response.description}`)
+      if (isBroadcastFailure(response) && this.throwOnBroadcastFailure) {
+        const e = new Error(`Failed to broadcast transaction! Error: ${response.description}`);
+        (e as any).more = response.more
+        throw e
       }
     }
     this.endTime(`broadcast_${txid.substring(0, 10)}`)
@@ -212,7 +216,7 @@ export class Engine {
 
     for (const topic of taggedBEEF.topics) {
       // Keep track of which outputs to admit, mark as stale, or retain
-      const outputsToAdmit: number[] = admissableOutputs.outputsToAdmit
+      const outputsToAdmit: number[] = admissibleOutputs.outputsToAdmit
       const staleCoins: Array<{
         txid: string
         outputIndex: number
@@ -227,7 +231,7 @@ export class Engine {
       for (const inputIndex of previousCoins) {
         const previousTXID = tx.inputs[inputIndex].sourceTXID || tx.inputs[inputIndex].sourceTransaction?.id('hex') as string
         const previousOutputIndex = tx.inputs[inputIndex].sourceOutputIndex
-        if (!admissableOutputs.coinsToRetain.includes(inputIndex)) {
+        if (!admissibleOutputs.coinsToRetain.includes(inputIndex)) {
           staleCoins.push({
             txid: previousTXID,
             outputIndex: previousOutputIndex

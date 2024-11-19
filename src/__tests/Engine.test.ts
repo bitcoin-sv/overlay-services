@@ -7,6 +7,8 @@ import { Storage } from '../storage/Storage'
 import { Transaction, Utils } from '@bsv/sdk'
 import { Output } from '../Output'
 import { SyncConfiguration } from '../SyncConfiguration'
+import { TaggedBEEF } from '../TaggedBEEF.js'
+import { Advertiser } from '../Advertiser.js'
 
 const mockChainTracker = {
   isValidRootForHeight: jest.fn(async () => true)
@@ -24,11 +26,35 @@ const mockOutput: Output = {
   outputIndex: 0,
   outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
   topic: 'hello',
-  satoshis: exampleTX.outputs[0].satoshis,
+  satoshis: exampleTX.outputs[0].satoshis as number,
   beef: exampleBeef,
   spent: false,
   outputsConsumed: [],
   consumedBy: []
+}
+
+const invalidHostingUrls = [
+  "http://example.com",               // Invalid: http
+  "https://localhost:3000",           // Invalid: localhost
+  "https://192.168.1.1",              // Invalid: internal private IP
+  "https://127.0.0.1",                // Invalid: loopback IP
+  "https://0.0.0.0",                  // Invalid: non-routable IP
+  "http://172.16.0.1",                // Invalid: private IP
+  "[::1]"
+]
+
+
+const validHostingUrls = [
+  "https://example.com",              // Valid: public URL
+  "https://8.8.8.8",                  // Valid: public routable IP
+  "https://255.255.255.255",          // Valid: public routable IP
+]
+
+const mockAdvertiser: Advertiser = {
+  createAdvertisements: jest.fn(async (): Promise<TaggedBEEF> => ({ beef: [0, 1, 2], topics: [] })),
+  revokeAdvertisements: jest.fn(async (): Promise<TaggedBEEF> => ({ beef: [0, 1, 2], topics: [] })),
+  findAllAdvertisements: jest.fn(async () => []),
+  parseAdvertisement: jest.fn()
 }
 
 describe('BSV Overlay Services Engine', () => {
@@ -66,6 +92,74 @@ describe('BSV Overlay Services Engine', () => {
       findUTXOsForTopic: jest.fn()
     }
   })
+
+  it('engine.syncAdvertisements should return void when invalid hostingURL is provided', async () => {
+    for (const url of invalidHostingUrls) {
+      const engine = new Engine(
+        { tm_helloworld: mockTopicManager },
+        { ls_helloworld: mockLookupService },
+        mockStorageEngine,
+        mockChainTracker,
+        url, // Invalid hostingURL
+        ['tracker1'], // shipTrackers
+        ['tracker2'], // slapTrackers
+        undefined,
+        mockAdvertiser,
+        undefined
+      )
+
+      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ outputsToAdmit: [] }))
+
+      // Call the method that would normally trigger syncAdvertisements
+      const result = await engine.syncAdvertisements()
+
+      expect(result).toBeUndefined()
+
+      // Verify that Advertiser methods are NOT called
+      expect(mockAdvertiser.createAdvertisements).not.toHaveBeenCalled()
+      expect(mockAdvertiser.findAllAdvertisements).not.toHaveBeenCalledWith('SHIP') // Assuming 'SHIP' is expected
+
+      console.log('Got past', url)
+    }
+  })
+
+  it('should allow engine.syncAdvertisements to proceed with valid hostingURLs', async () => {
+    const mockAdvertiser: Advertiser = {
+      createAdvertisements: jest.fn().mockResolvedValue({ tag: 'MOCK_TAG', data: Buffer.from('mock data') }),
+      findAllAdvertisements: jest.fn().mockResolvedValue([]),
+      revokeAdvertisements: jest.fn().mockResolvedValue({ tag: 'MOCK_REVOKE_TAG', data: Buffer.from('revocation data') }),
+      parseAdvertisement: jest.fn().mockReturnValue({
+        protocol: 'SHIP',
+        topicOrServiceName: 'mock-topic',
+        timestamp: Date.now(),
+      }),
+    }
+
+    for (const url of validHostingUrls) {
+      const engine = new Engine(
+        { tm_helloworld: mockTopicManager },
+        { ls_helloworld: mockLookupService },
+        mockStorageEngine,
+        mockChainTracker,
+        url, // Valid hostingURL
+        ['tracker1'], // shipTrackers
+        ['tracker2'], // slapTrackers
+        undefined,
+        mockAdvertiser, // Pass the mock Advertiser
+        undefined
+      )
+
+      // Call the method that would normally trigger syncAdvertisements
+      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ outputsToAdmit: [] }))
+      const result = await engine.syncAdvertisements()
+      expect(engine.submit).toHaveBeenCalled()
+
+      // Verify that Advertiser methods are called
+      expect(mockAdvertiser.createAdvertisements).toHaveBeenCalled()
+      expect(mockAdvertiser.findAllAdvertisements).toHaveBeenCalledWith('SHIP') // Assuming 'SHIP' is expected
+    }
+  })
+
   it('Uses SHIP sync configuration by default if no syncConfiguration was provided', () => {
     const engine = new Engine(
       { tm_helloworld: mockTopicManager },

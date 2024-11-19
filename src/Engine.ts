@@ -15,6 +15,7 @@ import { SyncConfiguration } from './SyncConfiguration.js'
 import { Advertisement } from './Advertisement.js'
 import { OverlayGASPRemote } from './GASP/OverlayGASPRemote.js'
 import { OverlayGASPStorage } from './GASP/OverlayGASPStorage.js'
+import { URL } from "url"
 
 /**
  * Am engine for running BSV Overlay Services (topic managers and lookup services).
@@ -468,7 +469,7 @@ export class Engine {
    * @returns {Promise<void>} A promise that resolves when the synchronization process is complete.
    */
   async syncAdvertisements(): Promise<void> {
-    if (this.advertiser === undefined) {
+    if (this.advertiser === undefined || !this.hostingURL || !this.isValidUrl(this.hostingURL)) {
       return
     }
     const advertiser = this.advertiser
@@ -948,6 +949,60 @@ export class Engine {
   async getDocumentationForLookupServiceProvider(provider: any): Promise<string> {
     const documentation = await this.lookupServices[provider]?.getDocumentation?.()
     return documentation !== undefined ? documentation : 'No documentation found!'
+  }
+
+  /**
+   * Validates a URL to ensure it does not match disallowed patterns:
+   * - Contains "http:" protocol
+   * - Contains "localhost" (with or without a port)
+   * - Internal or non-routable IP addresses (e.g., 192.168.x.x, 10.x.x.x, 172.16.x.x to 172.31.x.x)
+   * - Non-routable IPs like 127.x.x.x, 0.0.0.0, or IPv6 loopback (::1)
+   *
+   * @param url - The URL string to validate
+   * @returns {boolean} - Returns `false` if the URL violates any of the conditions `true` otherwise
+   */
+  private isValidUrl(url: string): boolean {
+    try {
+      const parsedUrl = new URL(url)
+
+      // Disallow http:
+      if (parsedUrl.protocol === "http:") {
+        return false
+      }
+
+      // Disallow localhost with or without a port
+      if (/^localhost(:\d+)?$/i.test(parsedUrl.hostname)) {
+        return false
+      }
+
+      // Disallow internal and non-routable IP addresses
+      const ipAddress = parsedUrl.hostname
+
+      // Regex for non-routable IPv4 IPs
+      const nonRoutableIpv4Patterns = [
+        /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // Loopback IPs
+        /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // 10.x.x.x private IPs
+        /^192\.168\.\d{1,3}\.\d{1,3}$/,    // 192.168.x.x private IPs
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$/, // 172.16.x.x to 172.31.x.x private IPs
+        /^0\.0\.0\.0$/                      // Non-routable address
+      ]
+
+      // Check for IPv4 matches
+      if (nonRoutableIpv4Patterns.some((pattern) => pattern.test(ipAddress))) {
+        return false
+      }
+
+      // Check for non-routable IPv6 addresses explicitly
+      if (ipAddress === "[::1]") {
+        return false
+      }
+
+      // If none of the disallowed conditions matched, the URL is valid
+      return true
+    } catch (error) {
+      // If the input is not a valid URL, return false
+      return false
+    }
   }
 }
 

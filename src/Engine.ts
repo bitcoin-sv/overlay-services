@@ -486,11 +486,8 @@ export class Engine {
     const requiredSHIPAdvertisements = new Set(configuredTopics)
     const requiredSLAPAdvertisements = new Set(configuredServices)
 
-    const existingTopics = new Set(currentSHIPAdvertisements.map(ad => ad.topicOrService))
-    const existingServices = new Set(currentSLAPAdvertisements.map(ad => ad.topicOrService))
-
-    const shipsToCreate = Array.from(requiredSHIPAdvertisements).filter(topicOrService => !existingTopics.has(topicOrService))
-    const slapsToCreate = Array.from(requiredSLAPAdvertisements).filter(topicOrService => !existingServices.has(topicOrService))
+    const shipsToCreate = Array.from(requiredSHIPAdvertisements).filter(topicOrService => !currentSHIPAdvertisements.some(x => x.topicOrService === topicOrService && x.domain === this.hostingURL))
+    const slapsToCreate = Array.from(requiredSLAPAdvertisements).filter(topicOrService => !currentSLAPAdvertisements.some(x => x.topicOrService === topicOrService && x.domain === this.hostingURL))
     const shipsToRevoke = currentSHIPAdvertisements.filter(ad => !requiredSHIPAdvertisements.has(ad.topicOrService))
     const slapsToRevoke = currentSLAPAdvertisements.filter(ad => !requiredSLAPAdvertisements.has(ad.topicOrService))
 

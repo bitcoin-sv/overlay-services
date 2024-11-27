@@ -2,12 +2,10 @@
 import { Engine } from '../../dist/cjs/src/Engine'
 import { LookupService } from '../LookupService'
 import { TopicManager } from '../TopicManager'
-import { AdmittanceInstructions } from '../AdmittanceInstructions'
 import { Storage } from '../storage/Storage'
-import { Transaction, Utils } from '@bsv/sdk'
+import { Transaction, Utils, TaggedBEEF, AdmittanceInstructions } from '@bsv/sdk'
 import { Output } from '../Output'
 import { SyncConfiguration } from '../SyncConfiguration'
-import { TaggedBEEF } from '../TaggedBEEF.js'
 import { Advertiser } from '../Advertiser.js'
 
 const mockChainTracker = {
@@ -118,8 +116,6 @@ describe('BSV Overlay Services Engine', () => {
       // Verify that Advertiser methods are NOT called
       expect(mockAdvertiser.createAdvertisements).not.toHaveBeenCalled()
       expect(mockAdvertiser.findAllAdvertisements).not.toHaveBeenCalledWith('SHIP') // Assuming 'SHIP' is expected
-
-      console.log('Got past', url)
     }
   })
 

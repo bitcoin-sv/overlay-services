@@ -1,6 +1,5 @@
-import { Script } from '@bsv/sdk'
+import { Script, TaggedBEEF } from '@bsv/sdk'
 import { Advertisement } from './Advertisement.js'
-import { TaggedBEEF } from './TaggedBEEF.js'
 
 export interface AdvertisementData {
   protocol: 'SHIP' | 'SLAP'

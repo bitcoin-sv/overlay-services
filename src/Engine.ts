@@ -1,14 +1,19 @@
 import { TopicManager } from './TopicManager.js'
 import { LookupService } from './LookupService.js'
 import { Storage } from './storage/Storage.js'
-import type { AdmittanceInstructions } from './AdmittanceInstructions.js'
 import type { Output } from './Output.js'
-import { TaggedBEEF } from './TaggedBEEF.js'
-import { STEAK } from './STEAK.js'
-import { LookupQuestion } from './LookupQuestion.js'
-import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
-import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
+import {
+  Transaction,
+  ChainTracker,
+  MerklePath,
+  Broadcaster,
+  isBroadcastFailure,
+  TaggedBEEF, STEAK,
+  LookupQuestion,
+  LookupAnswer,
+  AdmittanceInstructions
+} from '@bsv/sdk'
 import { AdvertisementData, Advertiser } from './Advertiser.js'
 import { GASP, GASPInitialRequest, GASPInitialResponse, GASPNode } from '@bsv/gasp'
 import { SyncConfiguration } from './SyncConfiguration.js'

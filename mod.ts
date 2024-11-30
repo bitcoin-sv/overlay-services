@@ -9,7 +9,7 @@ export type { Output } from './src/Output.js'
 export type { TaggedBEEF, STEAK, LookupQuestion, LookupAnswer, AdmittanceInstructions } from '@bsv/sdk'
 export type { LookupFormula } from './src/LookupFormula.js'
 export type { Advertisement } from './src/Advertisement.js'
-export type { AdvertisementData } from './src/Advertiser.js'
+export type { AdvertisementData, Advertiser } from './src/Advertiser.js'
 
 // The Knex storage system
 export { KnexStorage } from './src/storage/knex/KnexStorage.js'

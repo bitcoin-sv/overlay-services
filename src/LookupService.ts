@@ -1,7 +1,5 @@
-import { LookupQuestion } from './LookupQuestion.js'
 import { LookupFormula } from './LookupFormula.js'
-import { LookupAnswer } from './LookupAnswer.js'
-import { Script } from '@bsv/sdk'
+import { LookupQuestion, LookupAnswer, Script } from '@bsv/sdk'
 
 /**
  * Defines a Lookup Service interface to be implemented for specific use-cases

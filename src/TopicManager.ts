@@ -1,4 +1,4 @@
-import { AdmittanceInstructions } from './AdmittanceInstructions.js'
+import { AdmittanceInstructions } from '@bsv/sdk'
 
 /**
  * Defines a Topic Manager interface that can be implemented for specific use-cases

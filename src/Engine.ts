@@ -1,24 +1,33 @@
 import { TopicManager } from './TopicManager.js'
 import { LookupService } from './LookupService.js'
 import { Storage } from './storage/Storage.js'
-import type { AdmittanceInstructions } from './AdmittanceInstructions.js'
 import type { Output } from './Output.js'
-import { TaggedBEEF } from './TaggedBEEF.js'
-import { STEAK } from './STEAK.js'
-import { LookupQuestion } from './LookupQuestion.js'
-import { LookupAnswer } from './LookupAnswer.js'
 import { LookupFormula } from './LookupFormula.js'
-import { Transaction, ChainTracker, MerklePath, Broadcaster, isBroadcastFailure } from '@bsv/sdk'
+import {
+  Transaction,
+  ChainTracker,
+  MerklePath,
+  Broadcaster,
+  isBroadcastFailure,
+  TaggedBEEF, STEAK,
+  LookupQuestion,
+  LookupAnswer,
+  AdmittanceInstructions,
+  SHIPBroadcaster,
+  HTTPSOverlayBroadcastFacilitator,
+  LookupResolver,
+  LookupResolverConfig,
+  OverlayBroadcastFacilitator
+} from '@bsv/sdk'
 import { AdvertisementData, Advertiser } from './Advertiser.js'
 import { GASP, GASPInitialRequest, GASPInitialResponse, GASPNode } from '@bsv/gasp'
 import { SyncConfiguration } from './SyncConfiguration.js'
-import { Advertisement } from './Advertisement.js'
 import { OverlayGASPRemote } from './GASP/OverlayGASPRemote.js'
 import { OverlayGASPStorage } from './GASP/OverlayGASPStorage.js'
 import { URL } from "url"
 
 /**
- * Am engine for running BSV Overlay Services (topic managers and lookup services).
+ * An engine for running BSV Overlay Services (topic managers and lookup services).
  */
 export class Engine {
   /**
@@ -30,12 +39,14 @@ export class Engine {
    * @param {string} [hostingURL] - The URL this engine is hosted at. Required if going to support peer-discovery with an advertiser.
    * @param {Broadcaster} [Broadcaster] - broadcaster used for broadcasting the incoming transaction
    * @param {Advertiser} [Advertiser] - handles SHIP and SLAP advertisements for peer-discovery
-   * @param {string} shipTrackers - SHIP domains we know to bootstrap the system
-   * @param {string} slapTrackers - SLAP domains we know to bootstrap the system
+   * @param {string[]} shipTrackers - SHIP domains we know to bootstrap the system
+   * @param {string[]} slapTrackers - SLAP domains we know to bootstrap the system
    * @param {SyncConfiguration} syncConfiguration — Configuration object describing historical synchronization of topics.
    * @param {boolean} logTime - Enables / disables the timing logs for various operations in the Overlay submit route.
    * @param {string} logPrefix - Supports overriding the log prefix with a custom string.
    * @param {boolean} throwOnBroadcastFailure - Enables / disables throwing an error when a transaction broadcast failure is detected.
+   * @param {OverlayBroadcastFacilitator} overlayBroadcastFacilitator - Facilitator for propagation to other Overlay Services.
+   * @param {typeof console} logger - The place where log entries are written.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -50,7 +61,9 @@ export class Engine {
     public syncConfiguration?: SyncConfiguration,
     public logTime = false,
     public logPrefix = '[OVERLAY_ENGINE] ',
-    public throwOnBroadcastFailure = false
+    public throwOnBroadcastFailure = false,
+    public overlayBroadcastFacilitator: OverlayBroadcastFacilitator = new HTTPSOverlayBroadcastFacilitator(),
+    public logger: typeof console = console
   ) {
     // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all overlay topics, except for 'tm_ship' and 'tm_slap'.
     // For these two topics, any existing trackers are combined with the provided shipTrackers and slapTrackers omitting any duplicates.
@@ -87,13 +100,13 @@ export class Engine {
   // Helper functions for logging timings
   private startTime(label: string): void {
     if (this.logTime) {
-      console.time(`${this.logPrefix} ${label}`)
+      this.logger.time(`${this.logPrefix} ${label}`)
     }
   }
 
   private endTime(label: string): void {
     if (this.logTime) {
-      console.timeEnd(`${this.logPrefix} ${label}`)
+      this.logger.timeEnd(`${this.logPrefix} ${label}`)
     }
   }
 
@@ -125,7 +138,6 @@ export class Engine {
     this.endTime(`chainTracker_${txid.substring(0, 10)}`)
 
     const steak: STEAK = {}
-    let admissibleOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
     const previousCoins: number[] = []
 
     // Parallelize the topic processing
@@ -169,15 +181,16 @@ export class Engine {
               try {
                 await l.outputSpent?.(output.txid, output.outputIndex, topic)
               } catch (error) {
-                console.error('Error in lookup service for outputSpent:', error)
+                this.logger.error('Error in lookup service for outputSpent:', error)
               }
             }))
           } catch (error) {
-            console.error('Error marking UTXO as spent:', error)
+            this.logger.error('Error marking UTXO as spent:', error)
           }
         }
       })
 
+      let admissibleOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
       // Determine which outputs are admissible
       const admissibleOutputsPromise = (async () => {
         try {
@@ -215,25 +228,27 @@ export class Engine {
       onSteakReady(steak)
     }
 
+    // Update storage and notify lookup services
     for (const topic of taggedBEEF.topics) {
       // Keep track of which outputs to admit, mark as stale, or retain
+      const admissibleOutputs = steak[topic]
       const outputsToAdmit: number[] = admissibleOutputs.outputsToAdmit
-      const staleCoins: Array<{
-        txid: string
-        outputIndex: number
-      }> = []
       const outputsConsumed: Array<{
         txid: string
         outputIndex: number
       }> = []
 
-      // Find which outputs should not be retained and mark them as stale
-      // For each of the previous UTXOs, if the the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
+      const outputsToMarkStale: Array<{
+        txid: string
+        outputIndex: number
+      }> = []
+
+      // For each of the previous UTXOs, if the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
       for (const inputIndex of previousCoins) {
         const previousTXID = tx.inputs[inputIndex].sourceTXID || tx.inputs[inputIndex].sourceTransaction?.id('hex') as string
         const previousOutputIndex = tx.inputs[inputIndex].sourceOutputIndex
         if (!admissibleOutputs.coinsToRetain.includes(inputIndex)) {
-          staleCoins.push({
+          outputsToMarkStale.push({
             txid: previousTXID,
             outputIndex: previousOutputIndex
           })
@@ -247,7 +262,7 @@ export class Engine {
 
       // Remove stale outputs recursively
       this.startTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
-      await Promise.all(staleCoins.map(async coin => {
+      await Promise.all(outputsToMarkStale.map(async coin => {
         const output = await this.storage.findOutput(coin.txid, coin.outputIndex, topic)
         if (output !== undefined && output !== null) {
           await this.deleteUTXODeep(output)
@@ -302,110 +317,74 @@ export class Engine {
     }
 
     this.startTime(`transactionPropagation_${txid.substring(0, 10)}`)
-    // Propagate transaction to other nodes according to synchronization agreements
-    // 1. Find nodes that host the topics associated with admissable outputs
-    // We want to figure out which topics we actually care about (because their associated outputs were admitted)
-    // AND if the topic was not admitted we want to remove it from the list of topics we care about.
     const relevantTopics = taggedBEEF.topics.filter(topic =>
       steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0
     )
 
-    // TODO: Cache ship/slap lookup with expiry (every 5min)
     if (relevantTopics.length > 0) {
-      // Find all SHIP advertisements for the topics we care about
-      const domainToTopicsMap = new Map<string, Set<string>>()
-      for (const topic of relevantTopics) {
-        try {
-          // Handle custom lookup service answers
-          const lookupAnswer = await this.lookup({
-            service: 'ls_ship',
-            query: {
-              topic
-            }
-          })
-
-          // Lookup will currently always return type output-list
-          if (lookupAnswer.type === 'output-list') {
-            const shipAdvertisements: Advertisement[] = []
-            lookupAnswer.outputs.forEach(output => {
-              try {
-                // Parse out the advertisements using the provided parser
-                const tx = Transaction.fromBEEF(output.beef)
-                const advertisement = this.advertiser?.parseAdvertisement(tx.outputs[output.outputIndex].lockingScript)
-                if (advertisement !== undefined && advertisement !== null && advertisement.protocol === 'SHIP') {
-                  shipAdvertisements.push(advertisement)
-                }
-              } catch (error) {
-                console.error('Failed to parse advertisement output:', error)
-              }
-            })
-            if (shipAdvertisements.length > 0) {
-              shipAdvertisements.forEach((advertisement: Advertisement) => {
-                if (!domainToTopicsMap.has(advertisement.domain)) {
-                  domainToTopicsMap.set(advertisement.domain, new Set<string>())
-                }
-                domainToTopicsMap.get(advertisement.domain)?.add(topic)
-              })
-            }
-          }
-        } catch (error) {
-          console.error(`Error looking up topic ${String(topic)}:`, error)
+      // Create a SHIPBroadcaster instance
+      let customBroadcasterConfig
+      if (this.slapTrackers) {
+        // Custom SLAP trackers warrant a custom broadcaster config
+        const resolverConfig: LookupResolverConfig = {
+          slapTrackers: this.slapTrackers
+        }
+        customBroadcasterConfig = {
+          resolver: new LookupResolver(resolverConfig)
         }
       }
-
-      const broadcastPromises: Array<Promise<Response>> = []
-
-      // Make sure we gossip to the shipTrackers we know about.
-      if (this.shipTrackers !== undefined && this.shipTrackers.length !== 0 && relevantTopics.includes('tm_ship')) {
-        this.shipTrackers.forEach(tracker => {
-          if (domainToTopicsMap.get(tracker) !== undefined) {
-            domainToTopicsMap.get(tracker)?.add('tm_ship')
-          } else {
-            domainToTopicsMap.set(tracker, new Set(['tm_ship']))
-          }
-        })
-      }
-
-      // Make sure we gossip to the slapTrackers we know about.
-      if (this.slapTrackers !== undefined && this.slapTrackers.length !== 0 && relevantTopics.includes('tm_slap')) {
-        this.slapTrackers.forEach(tracker => {
-          if (domainToTopicsMap.get(tracker) !== undefined) {
-            domainToTopicsMap.get(tracker)?.add('tm_slap')
-          } else {
-            domainToTopicsMap.set(tracker, new Set<string>(['tm_slap']))
-          }
-        })
-      }
-
-      // Note: We are depending on window.fetch, this may not be ideal for the long term.
-      for (const [domain, topics] of domainToTopicsMap.entries()) {
-        if (domain !== this.hostingURL) {
-          const promise = fetch(`${String(domain)}/submit`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/octet-stream',
-              'X-Topics': JSON.stringify(Array.from(topics))
-            },
-            body: new Uint8Array(taggedBEEF.beef)
-          })
-          broadcastPromises.push(promise)
-        }
-      }
+      const shipBroadcaster = new SHIPBroadcaster(relevantTopics, customBroadcasterConfig)
 
       try {
-        await Promise.all(broadcastPromises)
+        await shipBroadcaster.broadcast(tx)
       } catch (error) {
-        console.error('Error during broadcasting:', error)
+        this.logger.error('Error during broadcasting:', error)
+      }
+
+      // Handle shipTrackers for 'tm_ship' topic
+      if (this.shipTrackers && this.shipTrackers.length > 0 && relevantTopics.includes('tm_ship')) {
+        const taggedBEEFForShip = {
+          beef: taggedBEEF.beef,
+          topics: ['tm_ship']
+        }
+        const facilitator = this.overlayBroadcastFacilitator
+
+        const sendPromises = this.shipTrackers.map(async tracker => {
+          try {
+            await facilitator.send(tracker, taggedBEEFForShip)
+          } catch (error) {
+            this.logger.error(`Error sending to shipTracker ${tracker}:`, error)
+          }
+        })
+        await Promise.all(sendPromises)
+      }
+
+      // Handle slapTrackers for 'tm_slap' topic
+      if (this.slapTrackers && this.slapTrackers.length > 0 && relevantTopics.includes('tm_slap')) {
+        const taggedBEEFForSlap = {
+          beef: taggedBEEF.beef,
+          topics: ['tm_slap']
+        }
+        const facilitator = new HTTPSOverlayBroadcastFacilitator()
+
+        const sendPromises = this.slapTrackers.map(async tracker => {
+          try {
+            await facilitator.send(tracker, taggedBEEFForSlap)
+          } catch (error) {
+            this.logger.error(`Error sending to slapTracker ${tracker}:`, error)
+          }
+        })
+        await Promise.all(sendPromises)
       }
     }
-    this.endTime(`transactionPropgation_${txid.substring(0, 10)}`)
+    this.endTime(`transactionPropagation_${txid.substring(0, 10)}`)
 
     // Immediately return from the function without waiting for the promises to resolve.
     return steak
   }
 
   /**
-   * Submit a lookup question to the Overlay Services Engine, and receive bakc a Lookup Answer
+   * Submit a lookup question to the Overlay Services Engine, and receive back a Lookup Answer
    * @param LookupQuestion — The question to ask the Overlay Services Engine
    * @returns The answer to the question
    */
@@ -508,7 +487,7 @@ export class Engine {
         await this.submit(taggedBEEF)
       }
     } catch (error) {
-      console.error('Failed to create SHIP advertisement:', error)
+      this.logger.error('Failed to create SHIP advertisement:', error)
     }
 
     // Revoke all advertisements to revoke
@@ -518,7 +497,7 @@ export class Engine {
         await this.submit(taggedBEEF)
       }
     } catch (error) {
-      console.error('Failed to revoke SHIP/SLAP advertisements:', error)
+      this.logger.error('Failed to revoke SHIP/SLAP advertisements:', error)
     }
   }
 
@@ -565,7 +544,7 @@ export class Engine {
                 endpointSet.add(advertisement.domain)
               }
             } catch (error) {
-              console.error('Failed to parse advertisement output:', error)
+              this.logger.error('Failed to parse advertisement output:', error)
             }
           })
 
@@ -767,7 +746,7 @@ export class Engine {
     } catch (e) {
       // Handle any errors that occurred
       // Note: Test this!
-      console.error(`Error retrieving UTXO history: ${e} `)
+      this.logger.error(`Error retrieving UTXO history: ${e} `)
       // return []
       throw new Error(`Error retrieving UTXO history: ${e} `)
     }
@@ -913,19 +892,51 @@ export class Engine {
   /**
    * Find a list of supported topic managers
    * @public
-   * @returns {Promise<string[]>} - array of supported topic managers
+   * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported topic managers and their metadata
    */
-  async listTopicManagers(): Promise<string[]> {
-    return Object.keys(this.managers)
+  async listTopicManagers(): Promise<Record<string, {
+    name: string;
+    shortDescription: string;
+    iconURL?: string;
+    version?: string;
+    informationURL?: string;
+  }>> {
+    let result: Record<string, {
+      name: string;
+      shortDescription: string;
+      iconURL?: string;
+      version?: string;
+      informationURL?: string;
+    }> = {}
+    for (let t in this.managers) {
+      result[t] = await this.managers[t].getMetaData()
+    }
+    return result
   }
 
   /**
    * Find a list of supported lookup services
    * @public
-   * @returns {Promise<string[]>} - array of supported lookup services
+   * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported lookup services and their metadata
    */
-  async listLookupServiceProviders(): Promise<string[]> {
-    return Object.keys(this.lookupServices)
+  async listLookupServices(): Promise<Record<string, {
+    name: string;
+    shortDescription: string;
+    iconURL?: string;
+    version?: string;
+    informationURL?: string;
+  }>> {
+    let result: Record<string, {
+      name: string;
+      shortDescription: string;
+      iconURL?: string;
+      version?: string;
+      informationURL?: string;
+    }> = {}
+    for (let t in this.lookupServices) {
+      result[t] = await this.lookupServices[t].getMetaData()
+    }
+    return result
   }
 
   /**
@@ -1002,18 +1013,3 @@ export class Engine {
     }
   }
 }
-
-//////////
-// OTHER FILES
-//////////
-
-/*
-There is currently a bug with the test runner that prevents importing and using files that export variables other than type definitions within implementation files that are not directly imported themselves.
-Thus, all non-type exports have been moved to Engine.
-*/
-
-// TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPRemote.ts]-----
-
-
-
-// TODO: fix bug with imports that break tests. -----[GASP/OverlayGASPStorage.ts]-----

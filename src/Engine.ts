@@ -16,7 +16,8 @@ import {
   SHIPBroadcaster,
   HTTPSOverlayBroadcastFacilitator,
   LookupResolver,
-  LookupResolverConfig
+  LookupResolverConfig,
+  OverlayBroadcastFacilitator
 } from '@bsv/sdk'
 import { AdvertisementData, Advertiser } from './Advertiser.js'
 import { GASP, GASPInitialRequest, GASPInitialResponse, GASPNode } from '@bsv/gasp'
@@ -44,6 +45,8 @@ export class Engine {
    * @param {boolean} logTime - Enables / disables the timing logs for various operations in the Overlay submit route.
    * @param {string} logPrefix - Supports overriding the log prefix with a custom string.
    * @param {boolean} throwOnBroadcastFailure - Enables / disables throwing an error when a transaction broadcast failure is detected.
+   * @param {OverlayBroadcastFacilitator} overlayBroadcastFacilitator - Facilitator for propagation to other Overlay Services.
+   * @param {typeof console} logger - The place where log entries are written.
    */
   constructor(
     public managers: { [key: string]: TopicManager },
@@ -58,7 +61,9 @@ export class Engine {
     public syncConfiguration?: SyncConfiguration,
     public logTime = false,
     public logPrefix = '[OVERLAY_ENGINE] ',
-    public throwOnBroadcastFailure = false
+    public throwOnBroadcastFailure = false,
+    public overlayBroadcastFacilitator: OverlayBroadcastFacilitator = new HTTPSOverlayBroadcastFacilitator(),
+    public logger: typeof console = console
   ) {
     // To encourage synchronization of overlay services, the SHIP sync strategy is used by default for all overlay topics, except for 'tm_ship' and 'tm_slap'.
     // For these two topics, any existing trackers are combined with the provided shipTrackers and slapTrackers omitting any duplicates.
@@ -95,13 +100,13 @@ export class Engine {
   // Helper functions for logging timings
   private startTime(label: string): void {
     if (this.logTime) {
-      console.time(`${this.logPrefix} ${label}`)
+      this.logger.time(`${this.logPrefix} ${label}`)
     }
   }
 
   private endTime(label: string): void {
     if (this.logTime) {
-      console.timeEnd(`${this.logPrefix} ${label}`)
+      this.logger.timeEnd(`${this.logPrefix} ${label}`)
     }
   }
 
@@ -176,11 +181,11 @@ export class Engine {
               try {
                 await l.outputSpent?.(output.txid, output.outputIndex, topic)
               } catch (error) {
-                console.error('Error in lookup service for outputSpent:', error)
+                this.logger.error('Error in lookup service for outputSpent:', error)
               }
             }))
           } catch (error) {
-            console.error('Error marking UTXO as spent:', error)
+            this.logger.error('Error marking UTXO as spent:', error)
           }
         }
       })
@@ -333,7 +338,7 @@ export class Engine {
       try {
         await shipBroadcaster.broadcast(tx)
       } catch (error) {
-        console.error('Error during broadcasting:', error)
+        this.logger.error('Error during broadcasting:', error)
       }
 
       // Handle shipTrackers for 'tm_ship' topic
@@ -342,13 +347,13 @@ export class Engine {
           beef: taggedBEEF.beef,
           topics: ['tm_ship']
         }
-        const facilitator = new HTTPSOverlayBroadcastFacilitator()
+        const facilitator = this.overlayBroadcastFacilitator
 
         const sendPromises = this.shipTrackers.map(async tracker => {
           try {
             await facilitator.send(tracker, taggedBEEFForShip)
           } catch (error) {
-            console.error(`Error sending to shipTracker ${tracker}:`, error)
+            this.logger.error(`Error sending to shipTracker ${tracker}:`, error)
           }
         })
         await Promise.all(sendPromises)
@@ -366,7 +371,7 @@ export class Engine {
           try {
             await facilitator.send(tracker, taggedBEEFForSlap)
           } catch (error) {
-            console.error(`Error sending to slapTracker ${tracker}:`, error)
+            this.logger.error(`Error sending to slapTracker ${tracker}:`, error)
           }
         })
         await Promise.all(sendPromises)
@@ -482,7 +487,7 @@ export class Engine {
         await this.submit(taggedBEEF)
       }
     } catch (error) {
-      console.error('Failed to create SHIP advertisement:', error)
+      this.logger.error('Failed to create SHIP advertisement:', error)
     }
 
     // Revoke all advertisements to revoke
@@ -492,7 +497,7 @@ export class Engine {
         await this.submit(taggedBEEF)
       }
     } catch (error) {
-      console.error('Failed to revoke SHIP/SLAP advertisements:', error)
+      this.logger.error('Failed to revoke SHIP/SLAP advertisements:', error)
     }
   }
 
@@ -539,7 +544,7 @@ export class Engine {
                 endpointSet.add(advertisement.domain)
               }
             } catch (error) {
-              console.error('Failed to parse advertisement output:', error)
+              this.logger.error('Failed to parse advertisement output:', error)
             }
           })
 
@@ -741,7 +746,7 @@ export class Engine {
     } catch (e) {
       // Handle any errors that occurred
       // Note: Test this!
-      console.error(`Error retrieving UTXO history: ${e} `)
+      this.logger.error(`Error retrieving UTXO history: ${e} `)
       // return []
       throw new Error(`Error retrieving UTXO history: ${e} `)
     }

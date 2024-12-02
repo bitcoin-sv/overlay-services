@@ -919,7 +919,7 @@ export class Engine {
    * @public
    * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported lookup services and their metadata
    */
-  async listLookupServices(): Promise<Record<string, {
+  async listLookupServiceProviders(): Promise<Record<string, {
     name: string;
     shortDescription: string;
     iconURL?: string;

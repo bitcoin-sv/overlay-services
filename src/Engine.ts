@@ -887,19 +887,51 @@ export class Engine {
   /**
    * Find a list of supported topic managers
    * @public
-   * @returns {Promise<string[]>} - array of supported topic managers
+   * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported topic managers and their metadata
    */
-  async listTopicManagers(): Promise<string[]> {
-    return Object.keys(this.managers)
+  async listTopicManagers(): Promise<Record<string, {
+    name: string;
+    shortDescription: string;
+    iconURL?: string;
+    version?: string;
+    informationURL?: string;
+  }>> {
+    let result: Record<string, {
+      name: string;
+      shortDescription: string;
+      iconURL?: string;
+      version?: string;
+      informationURL?: string;
+    }> = {}
+    for (let t in this.managers) {
+      result[t] = await this.managers[t].getMetaData()
+    }
+    return result
   }
 
   /**
    * Find a list of supported lookup services
    * @public
-   * @returns {Promise<string[]>} - array of supported lookup services
+   * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported lookup services and their metadata
    */
-  async listLookupServiceProviders(): Promise<string[]> {
-    return Object.keys(this.lookupServices)
+  async listLookupServices(): Promise<Record<string, {
+    name: string;
+    shortDescription: string;
+    iconURL?: string;
+    version?: string;
+    informationURL?: string;
+  }>> {
+    let result: Record<string, {
+      name: string;
+      shortDescription: string;
+      iconURL?: string;
+      version?: string;
+      informationURL?: string;
+    }> = {}
+    for (let t in this.lookupServices) {
+      result[t] = await this.lookupServices[t].getMetaData()
+    }
+    return result
   }
 
   /**

@@ -909,7 +909,15 @@ export class Engine {
       informationURL?: string;
     }> = {}
     for (let t in this.managers) {
-      result[t] = await this.managers[t].getMetaData()
+      try {
+        result[t] = await this.managers[t].getMetaData()
+      } catch (e) {
+        this.logger.warn(`Unable to get metadata for topic manager: ${t}`)
+        result[t] = {
+          name: t,
+          shortDescription: 'No topical tagline.'
+        }
+      }
     }
     return result
   }
@@ -933,8 +941,16 @@ export class Engine {
       version?: string;
       informationURL?: string;
     }> = {}
-    for (let t in this.lookupServices) {
-      result[t] = await this.lookupServices[t].getMetaData()
+    for (let ls in this.lookupServices) {
+      try {
+        result[ls] = await this.lookupServices[ls].getMetaData()
+      } catch (e) {
+        this.logger.warn(`Unable to get metadata for lookup service: ${ls}`)
+        result[ls] = {
+          name: ls,
+          shortDescription: 'No lookup service tagline.'
+        }
+      }
     }
     return result
   }

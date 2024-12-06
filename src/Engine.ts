@@ -222,8 +222,8 @@ export class Engine {
     }
     this.endTime(`broadcast_${txid.substring(0, 10)}`)
 
-    // Call the callback function if it is provided
-    if (onSteakReady !== undefined) {
+    // Call the callback function if it is provided and there are no previousCoins to handle
+    if (onSteakReady !== undefined && previousCoins.length === 0) {
       this.endTime(`submit_${txid}`)
       onSteakReady(steak)
     }
@@ -240,7 +240,8 @@ export class Engine {
 
       const outputsToMarkStale: Array<{
         txid: string
-        outputIndex: number
+        previousOutputIndex: number,
+        inputIndex: number
       }> = []
 
       // For each of the previous UTXOs, if the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
@@ -250,7 +251,8 @@ export class Engine {
         if (!admissibleOutputs.coinsToRetain.includes(inputIndex)) {
           outputsToMarkStale.push({
             txid: previousTXID,
-            outputIndex: previousOutputIndex
+            previousOutputIndex: previousOutputIndex,
+            inputIndex
           })
         } else {
           outputsConsumed.push({
@@ -263,12 +265,16 @@ export class Engine {
       // Remove stale outputs recursively
       this.startTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
       await Promise.all(outputsToMarkStale.map(async coin => {
-        const output = await this.storage.findOutput(coin.txid, coin.outputIndex, topic)
+        const output = await this.storage.findOutput(coin.txid, coin.previousOutputIndex, topic)
         if (output !== undefined && output !== null) {
           await this.deleteUTXODeep(output)
         }
       }))
       this.endTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
+
+      // Update the STEAK to indicate which coins were removed
+      // TODO: Handle case where deleteUTXODeep fails for some reason
+      steak[topic].coinsRemoved = outputsToMarkStale.map(x => x.inputIndex)
 
       // Handle admittance and notification of incoming UTXOs
       const newUTXOs: Array<{ txid: string, outputIndex: number }> = []

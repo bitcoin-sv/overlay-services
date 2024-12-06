@@ -115,9 +115,9 @@ export class Engine {
    * @param {TaggedBEEF} taggedBEEF - The transaction to process
    * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
    * @param {string} mode — Indicates the submission behavior, whether historical or current. Historical transactions are not broadcast or propagated.
-   * 
+   *
    * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
-   * 
+   *
    * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
   async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx'): Promise<STEAK> {
@@ -222,8 +222,8 @@ export class Engine {
     }
     this.endTime(`broadcast_${txid.substring(0, 10)}`)
 
-    // Call the callback function if it is provided
-    if (onSteakReady !== undefined) {
+    // Call the callback function if it is provided, and there are no previous coins to consider
+    if (onSteakReady !== undefined && previousCoins.length === 0) {
       this.endTime(`submit_${txid}`)
       onSteakReady(steak)
     }
@@ -262,13 +262,38 @@ export class Engine {
 
       // Remove stale outputs recursively
       this.startTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
-      await Promise.all(outputsToMarkStale.map(async coin => {
+      // Create an array of promises for deleting each stale output
+      const deletionPromises = outputsToMarkStale.map(async (coin) => {
         const output = await this.storage.findOutput(coin.txid, coin.outputIndex, topic)
         if (output !== undefined && output !== null) {
-          await this.deleteUTXODeep(output)
+          return await this.deleteUTXODeep(output)
+        } else {
+          // If the output doesn't exist, return an empty array
+          return []
         }
-      }))
+      })
+
+      // Wait for all deletion promises to resolve
+      const deletionResults = await Promise.all(deletionPromises)
+      // Flatten the array of arrays into a single array of deleted outputs
+      const outputsDeleted = deletionResults.flat()
+
       this.endTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
+
+      if (outputsDeleted.length > 0) {
+        // Remove duplicates based on txid and outputIndex
+        const uniqueDeletedOutputs = Array.from(
+          new Map(
+            outputsDeleted.map((item) => [`${item.txid}:${item.outputIndex}`, item])
+          ).values()
+        )
+
+        // Set the coinsRemoved property with unique deletions
+        steak[topic].coinsRemoved = uniqueDeletedOutputs.map(({ txid, outputIndex }) => ({
+          txid,
+          outputIndex
+        }))
+      }
 
       // Handle admittance and notification of incoming UTXOs
       const newUTXOs: Array<{ txid: string, outputIndex: number }> = []
@@ -309,6 +334,11 @@ export class Engine {
         })
       ])
       this.endTime(`outputConsumed_${txid.substring(0, 10)}`)
+    }
+
+    // Call the callback function if it is provided, and there are previous coins accounted for
+    if (onSteakReady !== undefined && previousCoins.length > 0) {
+      onSteakReady(steak)
     }
 
     // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
@@ -755,13 +785,17 @@ export class Engine {
   /**
    * Delete a UTXO and all stale consumed inputs.
    * @param output - The UTXO to be deleted.
-   * @returns {Promise<void>} - A promise that resolves when the deletion process is complete.
+   * @returns {Promise<Output[]>} - A promise that resolves with all Outputs that were removed
    */
-  private async deleteUTXODeep(output: Output): Promise<void> {
+  private async deleteUTXODeep(output: Output): Promise<Output[]> {
+    const deletedOutputs: Output[] = []
     try {
       // Delete the current output IFF there are no references to it
       if (output.consumedBy.length === 0) {
         await this.storage.deleteOutput(output.txid, output.outputIndex, output.topic)
+
+        // Add to deleted outputs
+        deletedOutputs.push(output)
 
         // Notify the lookup services of the UTXO being deleted
         for (const l of Object.values(this.lookupServices)) {
@@ -777,28 +811,42 @@ export class Engine {
 
       // If there are no more consumed utxos, return
       if (output.outputsConsumed.length === 0) {
-        return
+        return deletedOutputs
       }
 
-      // Delete any stale outputs that were consumed as inputs
-      output.outputsConsumed.map(async (outputIdentifier) => {
-        const staleOutput = await this.storage.findOutput(outputIdentifier.txid, outputIdentifier.outputIndex, output.topic)
+      // Iterate over consumed outputs to delete any stale outputs
+      for (const outputIdentifier of output.outputsConsumed) {
+        const staleOutput = await this.storage.findOutput(
+          outputIdentifier.txid,
+          outputIdentifier.outputIndex,
+          output.topic
+        )
 
-        // Make sure an output was found
+        // Continue if no output is found
         if (staleOutput === null || staleOutput === undefined) {
-          return undefined
+          continue
         }
 
-        // Parse out the existing data, then concat the new outputs with no duplicates
-        if (staleOutput.consumedBy.length !== 0) {
-          staleOutput.consumedBy = staleOutput.consumedBy.filter(x => x.txid !== output.txid && x.outputIndex !== output.outputIndex)
-          // Update with the new consumedBy data
-          await this.storage.updateConsumedBy(outputIdentifier.txid, outputIdentifier.outputIndex, output.topic, staleOutput.consumedBy)
+        // Remove the current output from the staleOutput's consumedBy list
+        if (staleOutput.consumedBy.length > 0) {
+          staleOutput.consumedBy = staleOutput.consumedBy.filter(
+            (x) => !(x.txid === output.txid && x.outputIndex === output.outputIndex)
+          )
+
+          // Update the consumedBy data in storage
+          await this.storage.updateConsumedBy(
+            staleOutput.txid,
+            staleOutput.outputIndex,
+            staleOutput.topic,
+            staleOutput.consumedBy
+          )
         }
 
-        // Find previousUTXO history
-        return await this.deleteUTXODeep(staleOutput)
-      })
+        // Recursively delete the stale output and accumulate deletions
+        const recursiveDeletions = await this.deleteUTXODeep(staleOutput)
+        deletedOutputs.push(...recursiveDeletions)
+      }
+      return deletedOutputs
     } catch (error) {
       throw new Error(`Failed to delete all stale outputs: ${error as string} `)
     }

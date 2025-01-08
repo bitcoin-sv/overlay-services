@@ -533,7 +533,7 @@ export class Engine {
         const lookupAnswer = await this.lookup({
           service: 'ls_ship',
           query: {
-            topic
+            topics: [topic]
           }
         })
 

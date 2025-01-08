@@ -563,7 +563,7 @@ export class Engine {
         // Remove our own hosting URL so we don't sync with ourselves
         syncEndpoints = syncEndpoints.filter((endpoint) => endpoint !== this.hostingURL)
 
-        this.logger.info(`[GASP SYNC] Will attempt to sync with ${syncEndpoints.length} peer${syncEndpoints.length === 1 ? '' : 's'}"`)
+        this.logger.info(`[GASP SYNC] Will attempt to sync with ${syncEndpoints.length} peer${syncEndpoints.length === 1 ? '' : 's'}`)
         // Sync with each endpoint individually to avoid parallel locks and let failures be isolated
         for (const endpoint of syncEndpoints) {
           this.logger.info(`[GASP SYNC] Starting sync for topic "${topic}" with peer "${endpoint}"`)

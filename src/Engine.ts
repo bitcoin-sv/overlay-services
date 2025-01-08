@@ -559,13 +559,34 @@ export class Engine {
       }
 
       // Now syncEndpoints is guaranteed to be an array of strings without duplicates
-      // Note: Consider MySQL DB locking implications when running synchronization in parallel
       if (Array.isArray(syncEndpoints)) {
-        await Promise.all(syncEndpoints.map(async endpoint => {
-          // Sync to each host that is associated with this topic
-          const gasp = new GASP(new OverlayGASPStorage(topic, this), new OverlayGASPRemote(endpoint, topic), 0, `[GASP Sync of ${topic} with ${endpoint}]`, true)
-          await gasp.sync()
-        }))
+        // Remove our own hosting URL so we don't sync with ourselves
+        syncEndpoints = syncEndpoints.filter((endpoint) => endpoint !== this.hostingURL)
+
+        this.logger.info(`[GASP SYNC] Will attempt to sync with ${syncEndpoints.length} peer${syncEndpoints.length === 1 ? '' : 's'}"`)
+        // Sync with each endpoint individually to avoid parallel locks and let failures be isolated
+        for (const endpoint of syncEndpoints) {
+          this.logger.info(`[GASP SYNC] Starting sync for topic "${topic}" with peer "${endpoint}"`)
+
+          try {
+            const gasp = new GASP(
+              new OverlayGASPStorage(topic, this),
+              new OverlayGASPRemote(endpoint, topic),
+              0,
+              `[GASP Sync of ${topic} with ${endpoint}]`,
+              true
+            )
+            await gasp.sync()
+
+            this.logger.info(`[GASP SYNC] Sync successful for topic "${topic}" with peer "${endpoint}"`)
+          } catch (err) {
+            this.logger.error(
+              `[GASP SYNC] Sync failed for topic "${topic}" with peer "${endpoint}"`,
+              err
+            )
+            // Continue on to the next endpoint without throwing
+          }
+        }
       }
     }
   }

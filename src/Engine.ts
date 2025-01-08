@@ -579,6 +579,7 @@ export class Engine {
               new OverlayGASPRemote(endpoint, topic),
               0,
               `[GASP Sync of ${topic} with ${endpoint}]`,
+              true,
               true
             )
             await gasp.sync()

@@ -530,7 +530,12 @@ export class Engine {
 
       if (syncEndpoints === 'SHIP') {
         // Perform lookup and find ship advertisements to set syncEndpoints for topic
-        const lookupAnswer = await this.lookup({
+        const resolverConfig: LookupResolverConfig = this.slapTrackers
+          ? { slapTrackers: this.slapTrackers }
+          : {}
+
+        const resolver = new LookupResolver(resolverConfig)
+        const lookupAnswer: LookupAnswer = await resolver.query({
           service: 'ls_ship',
           query: {
             topics: [topic]

@@ -10,5 +10,6 @@ export interface ExtendedAdmittanceInstructions extends AdmittanceInstructions{
 export interface TransactionContext {
     txid: string
     transaction: Transaction
+    beef: number[]
     topicData: {[topic: string]: ExtendedAdmittanceInstructions}
 }

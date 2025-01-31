@@ -133,6 +133,7 @@ export class Engine {
     const ctx: TransactionContext = {
       txid: txid,
       transaction: tx,
+      beef: taggedBEEF.beef,
       topicData: {}
     }
 

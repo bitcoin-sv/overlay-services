@@ -1,4 +1,5 @@
 import { AdmittanceInstructions } from '@bsv/sdk'
+import { ExtendedAdmittanceInstructions, TransactionContext } from './TransactionContext.js'
 
 /**
  * Defines a Topic Manager interface that can be implemented for specific use-cases
@@ -16,6 +17,18 @@ export interface TopicManager {
    * @throws - if there are no potentially valid topical outputs in this transaction
    */
   identifyNeededInputs?: (beef: number[]) => Promise<Array<{ txid: string, outputIndex: number }>>
+
+  /**
+   * Returns instructions that denote which outputs from the provided transaction to admit into the topic, and which previous coins should be retained. 
+   * Additionally, allows for the inclusion of arbitrary data parsed from inputs and outputs.
+   */
+  identifyExtendedAdmittanceInstructions?: (ctx: TransactionContext) => Promise<ExtendedAdmittanceInstructions>  
+
+  /**
+   * Identifies other topic managers which must be run before this one is run.
+   * @returns - A promise that resolves to an array of topic manager names.
+   */ 
+  getDependencies?: () => Promise<string[]>
 
   /**
   * Returns a Markdown-formatted documentation string for the topic manager.

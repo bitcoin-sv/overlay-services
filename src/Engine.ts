@@ -12,7 +12,6 @@ import {
   TaggedBEEF, STEAK,
   LookupQuestion,
   LookupAnswer,
-  AdmittanceInstructions,
   SHIPBroadcaster,
   HTTPSOverlayBroadcastFacilitator,
   LookupResolver,
@@ -25,6 +24,7 @@ import { SyncConfiguration } from './SyncConfiguration.js'
 import { OverlayGASPRemote } from './GASP/OverlayGASPRemote.js'
 import { OverlayGASPStorage } from './GASP/OverlayGASPStorage.js'
 import { URL } from "url"
+import { ExtendedAdmittanceInstructions, TransactionContext } from './TransactionContext.js'
 
 /**
  * An engine for running BSV Overlay Services (topic managers and lookup services).
@@ -130,6 +130,11 @@ export class Engine {
     // Validate the transaction SPV information
     const tx = Transaction.fromBEEF(taggedBEEF.beef)
     const txid = tx.id('hex')
+    const ctx: TransactionContext = {
+      txid: txid,
+      transaction: tx,
+      topicData: {}
+    }
 
     this.startTime(`submit_${txid}`)
     this.startTime(`chainTracker_${txid.substring(0, 10)}`)
@@ -141,74 +146,89 @@ export class Engine {
     const previousCoins: number[] = []
 
     // Parallelize the topic processing
-    const topicPromises = taggedBEEF.topics.map(async topic => {
-      if (this.managers[topic] === undefined || this.managers[topic] === null) {
-        throw new Error(`This server does not support this topic: ${topic}`)
-      }
+    const topicPromiseMap: { [key: string]: Promise<void> } = {}
 
-      // Check for duplicate transactions
-      this.startTime(`dupCheck_${txid.substring(0, 10)}`)
-      const dupeCheck = await this.storage.doesAppliedTransactionExist({ txid, topic })
-      this.endTime(`dupCheck_${txid.substring(0, 10)}`)
-
-      if (dupeCheck) {
-        steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
-        return
-      }
-
-      // Check if any input of this transaction is a previous UTXO
-      const outputPromises = tx.inputs.map(async (input, i) => {
-        const previousTXID = input.sourceTXID !== undefined ? input.sourceTXID : input.sourceTransaction?.id('hex')
-        if (previousTXID !== undefined) {
-          const output = this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
-          if (output !== undefined && output !== null) {
-            previousCoins.push(i)
-            return await Promise.resolve(output)
-          }
+    taggedBEEF.topics.forEach((topic) => {
+      topicPromiseMap[topic] = Promise.resolve(topic).then(async (topic) => {
+        if (this.managers[topic] === undefined || this.managers[topic] === null) {
+          throw new Error(`This server does not support this topic: ${topic}`)
         }
-        return await Promise.resolve(null)
-      })
 
-      this.startTime(`previousOutputQuery_${txid.substring(0, 10)}`)
-      const outputs = await Promise.all(outputPromises)
-      this.endTime(`previousOutputQuery_${txid.substring(0, 10)}`)
-
-      const markSpentPromises = outputs.map(async (output) => {
-        if (output !== undefined && output !== null) {
-          try {
-            await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
-            await Promise.all(Object.values(this.lookupServices).map(async l => {
-              try {
-                await l.outputSpent?.(output.txid, output.outputIndex, topic)
-              } catch (error) {
-                this.logger.error('Error in lookup service for outputSpent:', error)
-              }
-            }))
-          } catch (error) {
-            this.logger.error('Error marking UTXO as spent:', error)
-          }
+        let deps: string[] = (await this.managers[topic].getDependencies?.()) || []
+        if (deps.length > 0) {
+          await Promise.all(deps.map(async depTopic => topicPromiseMap[depTopic]))
         }
-      })
 
-      let admissibleOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
-      // Determine which outputs are admissible
-      const admissibleOutputsPromise = (async () => {
-        try {
-          this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-          admissibleOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
-          this.endTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-        } catch (_) {
+        // Check for duplicate transactions
+        this.startTime(`dupCheck_${txid.substring(0, 10)}`)
+        const dupeCheck = await this.storage.doesAppliedTransactionExist({ txid, topic })
+        this.endTime(`dupCheck_${txid.substring(0, 10)}`)
+
+        if (dupeCheck) {
           steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
+          return
         }
-      })()
 
-      // Wait for both tasks to complete
-      await Promise.all([markSpentPromises, admissibleOutputsPromise])
-      // Keep track of what outputs were admitted for what topic
-      steak[topic] = admissibleOutputs
+        // Check if any input of this transaction is a previous UTXO
+        const outputPromises = tx.inputs.map(async (input, i) => {
+          const previousTXID = input.sourceTXID !== undefined ? input.sourceTXID : input.sourceTransaction?.id('hex')
+          if (previousTXID !== undefined) {
+            const output = this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
+            if (output !== undefined && output !== null) {
+              previousCoins.push(i)
+              return await Promise.resolve(output)
+            }
+          }
+          return await Promise.resolve(null)
+        })
+
+        this.startTime(`previousOutputQuery_${txid.substring(0, 10)}`)
+        const outputs = await Promise.all(outputPromises)
+        this.endTime(`previousOutputQuery_${txid.substring(0, 10)}`)
+
+        let admissibleOutputs: ExtendedAdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
+        // Determine which outputs are admissible
+        await (async () => {
+          try {
+            this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
+            if (this.managers[topic].identifyExtendedAdmittanceInstructions) {
+              admissibleOutputs = await this.managers[topic].identifyExtendedAdmittanceInstructions?.(ctx)
+            } else {
+              admissibleOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
+            }
+            ctx.topicData[topic] = admissibleOutputs
+            this.endTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
+          } catch (_) {
+            steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
+          }
+        })()
+
+        // Keep track of what outputs were admitted for what topic
+        steak[topic] = admissibleOutputs
+
+        await Promise.all(outputs.map(async (output, vin) => {
+          if (output !== undefined && output !== null) {
+            try {
+              await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
+              await Promise.all(Object.values(this.lookupServices).map(async l => {
+                try {
+                  if (l.outputSpentExtended) {
+                    await l.outputSpentExtended(ctx, vin, topic)
+                  } else {
+                    await l.outputSpent?.(output.txid, output.outputIndex, topic)
+                  }
+                } catch (error) {
+                  this.logger.error('Error in lookup service for outputSpent:', error)
+                }
+              }))
+            } catch (error) {
+              this.logger.error('Error marking UTXO as spent:', error)
+            }
+          }
+        }))
+      })
     })
-
-    await Promise.all(topicPromises)
+    await Promise.all(Object.values(topicPromiseMap))
 
     // Broadcast the transaction if not historical and broadcaster is configured
     this.startTime(`broadcast_${txid.substring(0, 10)}`)
@@ -295,7 +315,10 @@ export class Engine {
         newUTXOs.push({ txid, outputIndex })
 
         this.startTime(`notifyLookupService${txid.substring(0, 10)}`)
-        await Promise.all(Object.values(this.lookupServices).map(async l => await l.outputAdded?.(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)))
+        await Promise.all(Object.values(this.lookupServices).map(l => l.outputAddedExtended ?
+          l.outputAddedExtended(ctx, outputIndex, topic) :
+          l.outputAdded?.(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)
+        ))
         this.endTime(`notifyLookupService${txid.substring(0, 10)}`)
       }))
 

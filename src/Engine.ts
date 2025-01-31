@@ -206,14 +206,14 @@ export class Engine {
         // Keep track of what outputs were admitted for what topic
         steak[topic] = admissibleOutputs
 
-        await Promise.all(outputs.map(async (output, vin) => {
+        await Promise.all(outputs.map(async (output, inputIndex) => {
           if (output !== undefined && output !== null) {
             try {
               await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
               await Promise.all(Object.values(this.lookupServices).map(async l => {
                 try {
                   if (l.outputSpentExtended) {
-                    await l.outputSpentExtended(ctx, vin, topic)
+                    await l.outputSpentExtended(ctx, inputIndex, topic)
                   } else {
                     await l.outputSpent?.(output.txid, output.outputIndex, topic)
                   }

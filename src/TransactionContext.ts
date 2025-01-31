@@ -4,7 +4,7 @@ import { AdmittanceInstructions, Transaction } from "@bsv/sdk";
 export interface ExtendedAdmittanceInstructions extends AdmittanceInstructions{
     inputData?: unknown[]
 
-    outputputData?: unknown[]
+    outputData?: unknown[]
 }
 
 export interface TransactionContext {

@@ -191,8 +191,8 @@ export class Engine {
         await (async () => {
           try {
             this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-            if (this.managers[topic].identifyExtendedAdmittanceInstructions) {
-              admissibleOutputs = await this.managers[topic].identifyExtendedAdmittanceInstructions?.(ctx)
+            if (this.managers[topic].identifyExtendedAdmissibleOutputs) {
+              admissibleOutputs = await this.managers[topic].identifyExtendedAdmissibleOutputs?.(ctx)
             } else {
               admissibleOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
             }

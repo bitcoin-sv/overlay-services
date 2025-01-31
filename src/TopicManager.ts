@@ -22,7 +22,7 @@ export interface TopicManager {
    * Returns instructions that denote which outputs from the provided transaction to admit into the topic, and which previous coins should be retained. 
    * Additionally, allows for the inclusion of arbitrary data parsed from inputs and outputs.
    */
-  identifyExtendedAdmittanceInstructions?: (ctx: TransactionContext) => Promise<ExtendedAdmittanceInstructions>  
+  identifyExtendedAdmissibleOutputs?: (ctx: TransactionContext) => Promise<ExtendedAdmittanceInstructions>  
 
   /**
    * Identifies other topic managers which must be run before this one is run.

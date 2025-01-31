@@ -1,5 +1,6 @@
 import { LookupFormula } from './LookupFormula.js'
 import { LookupQuestion, LookupAnswer, Script } from '@bsv/sdk'
+import { TransactionContext } from './TransactionContext.js'
 
 /**
  * Defines a Lookup Service interface to be implemented for specific use-cases
@@ -15,6 +16,7 @@ export interface LookupService {
    * @returns A promise that resolves when the processing of the new UTXO is complete.
    */
   outputAdded?: (txid: string, outputIndex: number, outputScript: Script, topic: string) => Promise<void>
+  outputAddedExtended?: (ctx: TransactionContext, outputIndex: number, topic: string) => Promise<void>
 
   /**
    * Processes the spend event for a UTXO.
@@ -26,6 +28,7 @@ export interface LookupService {
    * @returns A promise that resolves when processing is complete.
    */
   outputSpent?: (txid: string, outputIndex: number, topic: string) => Promise<void>
+  outputSpentExtended?: (ctx: TransactionContext, inputIndex: number, topic: string) => Promise<void>
 
   /**
    * Processes the deletion event for a UTXO.

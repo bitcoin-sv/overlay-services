@@ -637,7 +637,7 @@ export class Engine {
         version?: string;
         informationURL?: string;
     }>> 
-    async listLookupServices(): Promise<Record<string, {
+    async listLookupServiceProviders(): Promise<Record<string, {
         name: string;
         shortDescription: string;
         iconURL?: string;
@@ -766,12 +766,12 @@ Argument Details
 + **blockHeight**
   + The block height associated with the incoming merkle proof.
 
-#### Method listLookupServices
+#### Method listLookupServiceProviders
 
 Find a list of supported lookup services
 
 ```ts
-async listLookupServices(): Promise<Record<string, {
+async listLookupServiceProviders(): Promise<Record<string, {
     name: string;
     shortDescription: string;
     iconURL?: string;

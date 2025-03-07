@@ -24,7 +24,6 @@ import { GASP, GASPInitialRequest, GASPInitialResponse, GASPNode } from '@bsv/ga
 import { SyncConfiguration } from './SyncConfiguration.js'
 import { OverlayGASPRemote } from './GASP/OverlayGASPRemote.js'
 import { OverlayGASPStorage } from './GASP/OverlayGASPStorage.js'
-import { URL } from "url"
 
 /**
  * An engine for running BSV Overlay Services (topic managers and lookup services).
@@ -318,6 +317,7 @@ export class Engine {
     }
 
     // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
+    // This is because we are not prepared to advertise, so we are not going to engage other nodes with the SHIP process.
     if (this.advertiser === undefined || mode === 'historical-tx') {
       return steak
     }
@@ -327,61 +327,28 @@ export class Engine {
       steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0
     )
 
-    if (relevantTopics.length > 0) {
-      // Create a SHIPBroadcaster instance
-      let customBroadcasterConfig
-      if (this.slapTrackers) {
-        // Custom SLAP trackers warrant a custom broadcaster config
-        const resolverConfig: LookupResolverConfig = {
-          slapTrackers: this.slapTrackers
-        }
-        customBroadcasterConfig = {
-          resolver: new LookupResolver(resolverConfig)
-        }
+    if (relevantTopics.length === 0) {
+      this.endTime(`transactionPropagation_${txid.substring(0, 10)}`)
+      return steak
+    }
+
+    // Create a SHIPBroadcaster instance
+    let customBroadcasterConfig
+    if (Array.isArray(this.slapTrackers)) {
+      // Custom SLAP trackers warrant a custom broadcaster config
+      const resolverConfig: LookupResolverConfig = {
+        slapTrackers: this.slapTrackers
       }
-      const shipBroadcaster = new SHIPBroadcaster(relevantTopics, customBroadcasterConfig)
-
-      try {
-        await shipBroadcaster.broadcast(tx)
-      } catch (error) {
-        this.logger.error('Error during broadcasting:', error)
+      customBroadcasterConfig = {
+        resolver: new LookupResolver(resolverConfig)
       }
+    }
+    const shipBroadcaster = new SHIPBroadcaster(relevantTopics, customBroadcasterConfig)
 
-      // Handle shipTrackers for 'tm_ship' topic
-      if (this.shipTrackers && this.shipTrackers.length > 0 && relevantTopics.includes('tm_ship')) {
-        const taggedBEEFForShip = {
-          beef: taggedBEEF.beef,
-          topics: ['tm_ship']
-        }
-        const facilitator = this.overlayBroadcastFacilitator
-
-        const sendPromises = this.shipTrackers.map(async tracker => {
-          try {
-            await facilitator.send(tracker, taggedBEEFForShip)
-          } catch (error) {
-            this.logger.error(`Error sending to shipTracker ${tracker}:`, error)
-          }
-        })
-        await Promise.all(sendPromises)
-      }
-
-      // Handle slapTrackers for 'tm_slap' topic
-      if (this.slapTrackers && this.slapTrackers.length > 0 && relevantTopics.includes('tm_slap')) {
-        const taggedBEEFForSlap = {
-          beef: taggedBEEF.beef,
-          topics: ['tm_slap']
-        }
-        const facilitator = new HTTPSOverlayBroadcastFacilitator()
-
-        const sendPromises = this.slapTrackers.map(async tracker => {
-          try {
-            await facilitator.send(tracker, taggedBEEFForSlap)
-          } catch (error) {
-            this.logger.error(`Error sending to slapTracker ${tracker}:`, error)
-          }
-        })
-        await Promise.all(sendPromises)
-      }
+    try {
+      await shipBroadcaster.broadcast(tx)
+    } catch (error) {
+      this.logger.error('Error during propagation to other nodes:', error)
     }
     this.endTime(`transactionPropagation_${txid.substring(0, 10)}`)
 

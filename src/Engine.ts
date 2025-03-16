@@ -137,7 +137,7 @@ export class Engine {
     this.endTime(`chainTracker_${txid.substring(0, 10)}`)
 
     const steak: STEAK = {}
-    const previousCoins: number[] = []
+    const dupeTopics = new Set<string>()
 
     // Parallelize the topic processing
     const topicPromises = taggedBEEF.topics.map(async topic => {
@@ -151,21 +151,24 @@ export class Engine {
       this.endTime(`dupCheck_${txid.substring(0, 10)}`)
 
       if (dupeCheck) {
+        dupeTopics.add(topic)
         steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
         return
       }
 
-      // Check if any input of this transaction is a previous UTXO
+      // Identify previous coins admitted to this specific topic
+      const previousCoins: number[] = []
       const outputPromises = tx.inputs.map(async (input, i) => {
         const previousTXID = input.sourceTXID !== undefined ? input.sourceTXID : input.sourceTransaction?.id('hex')
         if (previousTXID !== undefined) {
-          const output = this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
+          // Check if the previous output was admitted to this specific topic
+          const output = await this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
           if (output !== undefined && output !== null) {
             previousCoins.push(i)
-            return await Promise.resolve(output)
+            return output
           }
         }
-        return await Promise.resolve(null)
+        return null
       })
 
       this.startTime(`previousOutputQuery_${txid.substring(0, 10)}`)
@@ -190,7 +193,7 @@ export class Engine {
       })
 
       let admissibleOutputs: AdmittanceInstructions = { outputsToAdmit: [], coinsToRetain: [] }
-      // Determine which outputs are admissible
+      // Determine which outputs are admissible for this topic
       const admissibleOutputsPromise = (async () => {
         try {
           this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
@@ -221,14 +224,16 @@ export class Engine {
     }
     this.endTime(`broadcast_${txid.substring(0, 10)}`)
 
-    // Call the callback function if it is provided and there are no previousCoins to handle
-    if (onSteakReady !== undefined && previousCoins.length === 0) {
-      this.endTime(`submit_${txid}`)
+    // Call the callback function if it is provided (moved here to ensure topic processing is complete)
+    if (onSteakReady !== undefined) {
       onSteakReady(steak)
     }
 
     // Update storage and notify lookup services
     for (const topic of taggedBEEF.topics) {
+      if (dupeTopics.has(topic)) {
+        continue
+      }
       // Keep track of which outputs to admit, mark as stale, or retain
       const admissibleOutputs = steak[topic]
       const outputsToAdmit: number[] = admissibleOutputs.outputsToAdmit
@@ -243,7 +248,19 @@ export class Engine {
         inputIndex: number
       }> = []
 
-      // For each of the previous UTXOs, if the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
+      // Recompute previousCoins for this topic to use in the update logic
+      const previousCoins: number[] = []
+      await Promise.all(tx.inputs.map(async (input, i) => {
+        const previousTXID = input.sourceTXID !== undefined ? input.sourceTXID : input.sourceTransaction?.id('hex')
+        if (previousTXID !== undefined) {
+          const output = await this.storage.findOutput(previousTXID, input.sourceOutputIndex, topic)
+          if (output !== undefined && output !== null) {
+            previousCoins.push(i)
+          }
+        }
+      }))
+
+      // For each of the previous UTXOs for this topic, if the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
       for (const inputIndex of previousCoins) {
         const previousTXID = tx.inputs[inputIndex].sourceTXID || tx.inputs[inputIndex].sourceTransaction?.id('hex') as string
         const previousOutputIndex = tx.inputs[inputIndex].sourceOutputIndex
@@ -272,7 +289,6 @@ export class Engine {
       this.endTime(`lookForStaleOutputs_${txid.substring(0, 10)}`)
 
       // Update the STEAK to indicate which coins were removed
-      // TODO: Handle case where deleteUTXODeep fails for some reason
       steak[topic].coinsRemoved = outputsToMarkStale.map(x => x.inputIndex)
 
       // Handle admittance and notification of incoming UTXOs
@@ -317,14 +333,13 @@ export class Engine {
     }
 
     // If we don't have an advertiser or we are dealing with historical transactions, just return the steak
-    // This is because we are not prepared to advertise, so we are not going to engage other nodes with the SHIP process.
     if (this.advertiser === undefined || mode === 'historical-tx') {
       return steak
     }
 
     this.startTime(`transactionPropagation_${txid.substring(0, 10)}`)
     const relevantTopics = taggedBEEF.topics.filter(topic =>
-      steak[topic] !== undefined && steak[topic].outputsToAdmit.length !== 0
+      steak[topic] !== undefined && !dupeTopics.has(topic) && (steak[topic].outputsToAdmit.length !== 0 || steak[topic].coinsRemoved?.length !== 0)
     )
 
     if (relevantTopics.length === 0) {

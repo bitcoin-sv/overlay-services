@@ -194,7 +194,7 @@ export class KnexStorage implements Storage {
       txid,
       outputIndex,
       topic
-    }).update('consumedBy', consumedBy)
+    }).update('consumedBy', JSON.stringify(consumedBy))
   }
 
   async updateTransactionBEEF(txid: string, beef: number[]): Promise<void> {

@@ -436,7 +436,12 @@ export class Engine {
    * @returns {Promise<void>} A promise that resolves when the synchronization process is complete.
    */
   async syncAdvertisements(): Promise<void> {
-    if (this.advertiser === undefined || !this.hostingURL || !this.isValidUrl(this.hostingURL)) {
+    if (
+      this.advertiser === undefined ||
+      typeof this.hostingURL !== 'string' ||
+      this.hostingURL.length < 1 ||
+      !this.isValidUrl(this.hostingURL)
+    ) {
       return
     }
     const advertiser = this.advertiser

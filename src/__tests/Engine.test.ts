@@ -69,10 +69,13 @@ describe('BSV Overlay Services Engine', () => {
     }
 
     mockLookupService = {
-      outputAdded: jest.fn(),
+      outputAdmittedByTopic: jest.fn(),
       outputSpent: jest.fn(),
       lookup: jest.fn(),
-      outputDeleted: jest.fn(),
+      outputNoLongerRetainedInHistory: jest.fn(),
+      outputEvicted: jest.fn(),
+      admissionMode: 'locking-script',
+      spendNotificationMode: 'none',
       getDocumentation: async () => 'Service Documentation',
       getMetaData: async () => ({ name: 'Mock Service', shortDescription: 'Mock Short Service Description' })
     }
@@ -553,7 +556,12 @@ describe('BSV Overlay Services Engine', () => {
             beef: exampleBeef,
             topics: ['Hello']
           })
-          expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith(exampleTXID, 0, 'Hello')
+          expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith({
+            mode: 'none',
+            txid: exampleTXID,
+            outputIndex: 0,
+            topic: 'Hello'
+          })
         })
       })
       describe('When previous UTXOs were not retained by the topic manager', () => {
@@ -578,7 +586,7 @@ describe('BSV Overlay Services Engine', () => {
           })
           // Test that previous UTXOs are deleted
           expect(mockStorageEngine.deleteOutput).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
-          expect(mockLookupService.outputDeleted).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+          expect(mockLookupService.outputNoLongerRetainedInHistory).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
         })
         it('Notifies all lookup services about the output being spent (the notification about the actual deletion will come from deleteUTXODeep)', async () => {
           // Mock findUTXO to return a UTXO
@@ -600,7 +608,7 @@ describe('BSV Overlay Services Engine', () => {
             topics: ['Hello']
           })
           // Was the lookup service notified of the output deletion?
-          expect(mockLookupService.outputDeleted).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+          expect(mockLookupService.outputNoLongerRetainedInHistory).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
         })
       })
       it('Adds admissible UTXOs to the storage engine', async () => {
@@ -645,12 +653,14 @@ describe('BSV Overlay Services Engine', () => {
           topics: ['Hello']
         })
         // Test the lookup service was notified of the new UTXO
-        expect(mockLookupService.outputAdded).toHaveBeenCalledWith(
-          exampleTXID,
-          0,
-          exampleTX.outputs[0].lockingScript,
-          'Hello'
-        )
+        expect(mockLookupService.outputAdmittedByTopic).toHaveBeenCalledWith({
+          mode: 'locking-script',
+          txid: exampleTXID,
+          satoshis: 26172,
+          outputIndex: 0,
+          lockingScript: exampleTX.outputs[0].lockingScript,
+          topic: 'Hello'
+        })
       })
       describe('For each consumed UTXO', () => {
         it('Finds the UTXO', async () => {

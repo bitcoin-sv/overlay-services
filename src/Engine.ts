@@ -181,7 +181,53 @@ export class Engine {
             await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
             await Promise.all(Object.values(this.lookupServices).map(async l => {
               try {
-                await l.outputSpent?.(output.txid, output.outputIndex, topic)
+                if (typeof l.outputSpent === 'function') {
+                  if (l.spendNotificationMode === 'txid') {
+                    await l.outputSpent({
+                      mode: 'txid',
+                      spendingTxid: txid,
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  } else if (l.spendNotificationMode === 'script') {
+                    const inputIndex = tx.inputs.findIndex(i => {
+                      let realSource = i.sourceTXID
+                      if (!realSource) {
+                        realSource = i.sourceTransaction?.id('hex')
+                      }
+                      return realSource === output.txid && i.sourceOutputIndex === output.outputIndex
+                    })
+                    if (!inputIndex) {
+                      throw new Error('Could not find input index')
+                    }
+                    await l.outputSpent({
+                      mode: 'script',
+                      spendingTxid: txid,
+                      inputIndex,
+                      sequenceNumber: tx.inputs[inputIndex].sequence ?? 0xffffffff,
+                      unlockingScript: tx.inputs[inputIndex].unlockingScript!,
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  } else if (l.spendNotificationMode === 'whole-tx') {
+                    await l.outputSpent({
+                      mode: 'whole-tx',
+                      spendingAtomicBEEF: tx.toAtomicBEEF(),
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  } else { // none
+                    await l.outputSpent({
+                      mode: 'none',
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  }
+                }
               } catch (error) {
                 this.logger.error('Error in lookup service for outputSpent:', error)
               }
@@ -262,7 +308,8 @@ export class Engine {
 
       // For each of the previous UTXOs for this topic, if the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
       for (const inputIndex of previousCoins) {
-        const previousTXID = tx.inputs[inputIndex].sourceTXID || tx.inputs[inputIndex].sourceTransaction?.id('hex')
+        const previousTXID = tx.inputs[inputIndex].sourceTXID ?? tx.inputs[inputIndex].sourceTransaction?.id('hex')
+        if (typeof previousTXID !== 'string') continue
         const previousOutputIndex = tx.inputs[inputIndex].sourceOutputIndex
         if (!admissibleOutputs.coinsToRetain.includes(inputIndex)) {
           outputsToMarkStale.push({
@@ -294,6 +341,7 @@ export class Engine {
       // Handle admittance and notification of incoming UTXOs
       const newUTXOs: Array<{ txid: string, outputIndex: number }> = []
       await Promise.all(outputsToAdmit.map(async outputIndex => {
+        if (typeof tx.outputs[outputIndex].satoshis !== 'number') return
         this.startTime(`insertNewOutput_${txid.substring(0, 10)}`)
         await this.storage.insertOutput({
           txid,
@@ -310,7 +358,31 @@ export class Engine {
         newUTXOs.push({ txid, outputIndex })
 
         this.startTime(`notifyLookupService${txid.substring(0, 10)}`)
-        await Promise.all(Object.values(this.lookupServices).map(async l => await l.outputAdded?.(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)))
+        await Promise.all(Object.values(this.lookupServices).map(async l => {
+          if (l.admissionMode === 'locking-script') {
+            if (
+              typeof tx.outputs[outputIndex].lockingScript !== 'object' ||
+              typeof tx.outputs[outputIndex].satoshis !== 'number'
+            ) {
+              return
+            }
+            await l.outputAdmittedByTopic({
+              mode: 'locking-script',
+              txid,
+              outputIndex,
+              lockingScript: tx.outputs[outputIndex].lockingScript,
+              satoshis: tx.outputs[outputIndex].satoshis,
+              topic
+            })
+          } else {
+            await l.outputAdmittedByTopic({
+              mode: 'whole-tx',
+              atomicBEEF: tx.toAtomicBEEF(),
+              outputIndex,
+              topic
+            })
+          }
+        }))
         this.endTime(`notifyLookupService${txid.substring(0, 10)}`)
       }))
 
@@ -786,7 +858,7 @@ export class Engine {
         // Notify the lookup services of the UTXO being deleted
         for (const l of Object.values(this.lookupServices)) {
           try {
-            await l.outputDeleted?.(
+            await l.outputNoLongerRetainedInHistory?.(
               output.txid,
               output.outputIndex,
               output.topic
@@ -845,6 +917,7 @@ export class Engine {
       for (const input of tx.inputs) {
         // All inputs must have sourceTransactions
         const stx = input.sourceTransaction
+        if (typeof stx !== 'object') continue
         this.updateInputProofs(stx, txid, proof)
       }
     }

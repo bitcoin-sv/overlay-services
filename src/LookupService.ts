@@ -17,7 +17,7 @@ export type OutputAdmittedByTopic =
     outputIndex: number // index of admitted output
     topic: string // topic into which it was admitted
     satoshis: number // value of the output
-    outputScript: Script // locking script of the output
+    lockingScript: Script // script in this output
   }
   | { // «whole-tx» mode
     mode: 'whole-tx'

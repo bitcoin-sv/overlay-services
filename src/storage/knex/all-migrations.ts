@@ -7,7 +7,7 @@ import { up as addedIndexesUp, down as addedIndexesDown } from './migrations/202
 /**
  * An array of all migrations, in order.
  */
-type Migration = {
+interface Migration {
   up: (knex: Knex) => Promise<void>
   down: (knex: Knex) => Promise<void>
 }

@@ -5,11 +5,11 @@ import type { Output } from '../../Output.js'
 export class KnexStorage implements Storage {
   knex: Knex
 
-  constructor(knex: Knex) {
+  constructor (knex: Knex) {
     this.knex = knex
   }
 
-  async findOutput(txid: string, outputIndex: number, topic?: string, spent?: boolean, includeBEEF: boolean = false): Promise<Output | null> {
+  async findOutput (txid: string, outputIndex: number, topic?: string, spent?: boolean, includeBEEF: boolean = false): Promise<Output | null> {
     const search: {
       'outputs.txid': string
       'outputs.outputIndex': number
@@ -59,7 +59,7 @@ export class KnexStorage implements Storage {
     }
   }
 
-  async findOutputsForTransaction(txid: string, includeBEEF: boolean = false): Promise<Output[]> {
+  async findOutputsForTransaction (txid: string, includeBEEF: boolean = false): Promise<Output[]> {
     // Base query to get outputs
     const query = this.knex('outputs').where({ 'outputs.txid': txid })
 
@@ -97,7 +97,7 @@ export class KnexStorage implements Storage {
     }))
   }
 
-  async findUTXOsForTopic(topic: string, since?: number, includeBEEF: boolean = false): Promise<Output[]> {
+  async findUTXOsForTopic (topic: string, since?: number, includeBEEF: boolean = false): Promise<Output[]> {
     // Base query to get outputs
     const query = this.knex('outputs').where({ 'outputs.topic': topic, 'outputs.spent': false })
 
@@ -141,7 +141,7 @@ export class KnexStorage implements Storage {
     }))
   }
 
-  async deleteOutput(txid: string, outputIndex: number, topic: string): Promise<void> {
+  async deleteOutput (txid: string, outputIndex: number, topic: string): Promise<void> {
     await this.knex.transaction(async trx => {
       // Delete the specific output
       await trx('outputs').where({ txid, outputIndex }).del()
@@ -156,7 +156,7 @@ export class KnexStorage implements Storage {
     })
   }
 
-  async insertOutput(output: Output): Promise<void> {
+  async insertOutput (output: Output): Promise<void> {
     const insertPromises = [this.knex('outputs').insert({
       txid: output.txid,
       outputIndex: Number(output.outputIndex),
@@ -181,7 +181,7 @@ export class KnexStorage implements Storage {
     })
   }
 
-  async markUTXOAsSpent(txid: string, outputIndex: number, topic?: string): Promise<void> {
+  async markUTXOAsSpent (txid: string, outputIndex: number, topic?: string): Promise<void> {
     await this.knex('outputs').where({
       txid,
       outputIndex,
@@ -189,7 +189,7 @@ export class KnexStorage implements Storage {
     }).update('spent', true)
   }
 
-  async updateConsumedBy(txid: string, outputIndex: number, topic: string, consumedBy: Array<{ txid: string, outputIndex: number }>): Promise<void> {
+  async updateConsumedBy (txid: string, outputIndex: number, topic: string, consumedBy: Array<{ txid: string, outputIndex: number }>): Promise<void> {
     await this.knex('outputs').where({
       txid,
       outputIndex,
@@ -197,13 +197,13 @@ export class KnexStorage implements Storage {
     }).update('consumedBy', JSON.stringify(consumedBy))
   }
 
-  async updateTransactionBEEF(txid: string, beef: number[]): Promise<void> {
+  async updateTransactionBEEF (txid: string, beef: number[]): Promise<void> {
     await this.knex('transactions').where({
       txid
     }).update('beef', Buffer.from(beef))
   }
 
-  async updateOutputBlockHeight(txid: string, outputIndex: number, topic: string, blockHeight: number): Promise<void> {
+  async updateOutputBlockHeight (txid: string, outputIndex: number, topic: string, blockHeight: number): Promise<void> {
     await this.knex('outputs').where({
       txid,
       outputIndex,
@@ -211,14 +211,14 @@ export class KnexStorage implements Storage {
     }).update('blockHeight', blockHeight)
   }
 
-  async insertAppliedTransaction(tx: { txid: string, topic: string }): Promise<void> {
+  async insertAppliedTransaction (tx: { txid: string, topic: string }): Promise<void> {
     await this.knex('applied_transactions').insert({
       txid: tx.txid,
       topic: tx.topic
     })
   }
 
-  async doesAppliedTransactionExist(tx: { txid: string, topic: string }): Promise<boolean> {
+  async doesAppliedTransactionExist (tx: { txid: string, topic: string }): Promise<boolean> {
     const result = await this.knex('applied_transactions')
       .where({ txid: tx.txid, topic: tx.topic })
       .select(this.knex.raw('1'))

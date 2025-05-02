@@ -25,7 +25,7 @@ const mockOutput: Output = {
   outputIndex: 0,
   outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
   topic: 'hello',
-  satoshis: exampleTX.outputs[0].satoshis as number,
+  satoshis: exampleTX.outputs[0].satoshis,
   beef: exampleBeef,
   spent: false,
   outputsConsumed: [],
@@ -33,20 +33,19 @@ const mockOutput: Output = {
 }
 
 const invalidHostingUrls = [
-  "http://example.com",               // Invalid: http
-  "https://localhost:3000",           // Invalid: localhost
-  "https://192.168.1.1",              // Invalid: internal private IP
-  "https://127.0.0.1",                // Invalid: loopback IP
-  "https://0.0.0.0",                  // Invalid: non-routable IP
-  "http://172.16.0.1",                // Invalid: private IP
-  "[::1]"
+  'http://example.com', // Invalid: http
+  'https://localhost:3000', // Invalid: localhost
+  'https://192.168.1.1', // Invalid: internal private IP
+  'https://127.0.0.1', // Invalid: loopback IP
+  'https://0.0.0.0', // Invalid: non-routable IP
+  'http://172.16.0.1', // Invalid: private IP
+  '[::1]'
 ]
 
-
 const validHostingUrls = [
-  "https://example.com",              // Valid: public URL
-  "https://8.8.8.8",                  // Valid: public routable IP
-  "https://255.255.255.255",          // Valid: public routable IP
+  'https://example.com', // Valid: public URL
+  'https://8.8.8.8', // Valid: public routable IP
+  'https://255.255.255.255' // Valid: public routable IP
 ]
 
 const mockAdvertiser: Advertiser = {
@@ -107,7 +106,7 @@ describe('BSV Overlay Services Engine', () => {
         undefined
       )
 
-      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ 'tm_helloworld': { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
+      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ tm_helloworld: { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
 
       // Call the method that would normally trigger syncAdvertisements
       const result = await engine.syncAdvertisements()
@@ -128,8 +127,8 @@ describe('BSV Overlay Services Engine', () => {
       parseAdvertisement: jest.fn().mockReturnValue({
         protocol: 'SHIP',
         topicOrServiceName: 'mock-topic',
-        timestamp: Date.now(),
-      }),
+        timestamp: Date.now()
+      })
     }
 
     for (const url of validHostingUrls) {
@@ -147,7 +146,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Call the method that would normally trigger syncAdvertisements
-      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ 'tm_helloworld': { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
+      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ tm_helloworld: { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
       const result = await engine.syncAdvertisements()
       expect(engine.submit).toHaveBeenCalled()
 
@@ -240,7 +239,7 @@ describe('BSV Overlay Services Engine', () => {
       outputIndex: 0,
       outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
       topic: 'hello',
-      satoshis: exampleTX.outputs[0].satoshis as number,
+      satoshis: exampleTX.outputs[0].satoshis,
       beef: exampleBeef,
       spent: false,
       outputsConsumed: [],
@@ -305,7 +304,7 @@ describe('BSV Overlay Services Engine', () => {
           outputIndex,
           outputScript: tx.outputs[outputIndex].lockingScript.toBinary(),
           topic: 'hello',
-          satoshis: tx.outputs[outputIndex].satoshis as number,
+          satoshis: tx.outputs[outputIndex].satoshis,
           beef: tx.toBEEF(),
           spent: false,
           outputsConsumed: [],

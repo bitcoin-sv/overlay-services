@@ -1,7 +1,7 @@
 /**
  * Represents an output to be tracked by the Overlay Services Engine
  */
-export type Output = {
+export interface Output {
   /** TXID of the output */
   txid: string
   /** index of the output */

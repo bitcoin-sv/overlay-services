@@ -73,7 +73,7 @@
   },
   "dependencies": {
     "@bsv/gasp": "^1.1.0",
-    "@bsv/sdk": "^1.4.18",
+    "@bsv/sdk": "^1.4.24",
     "knex": "^3.1.0"
   }
 }

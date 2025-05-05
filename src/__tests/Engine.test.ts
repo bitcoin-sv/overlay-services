@@ -25,7 +25,7 @@ const mockOutput: Output = {
   outputIndex: 0,
   outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
   topic: 'hello',
-  satoshis: exampleTX.outputs[0].satoshis as number,
+  satoshis: exampleTX.outputs[0].satoshis,
   beef: exampleBeef,
   spent: false,
   outputsConsumed: [],
@@ -33,20 +33,19 @@ const mockOutput: Output = {
 }
 
 const invalidHostingUrls = [
-  "http://example.com",               // Invalid: http
-  "https://localhost:3000",           // Invalid: localhost
-  "https://192.168.1.1",              // Invalid: internal private IP
-  "https://127.0.0.1",                // Invalid: loopback IP
-  "https://0.0.0.0",                  // Invalid: non-routable IP
-  "http://172.16.0.1",                // Invalid: private IP
-  "[::1]"
+  'http://example.com', // Invalid: http
+  'https://localhost:3000', // Invalid: localhost
+  'https://192.168.1.1', // Invalid: internal private IP
+  'https://127.0.0.1', // Invalid: loopback IP
+  'https://0.0.0.0', // Invalid: non-routable IP
+  'http://172.16.0.1', // Invalid: private IP
+  '[::1]'
 ]
 
-
 const validHostingUrls = [
-  "https://example.com",              // Valid: public URL
-  "https://8.8.8.8",                  // Valid: public routable IP
-  "https://255.255.255.255",          // Valid: public routable IP
+  'https://example.com', // Valid: public URL
+  'https://8.8.8.8', // Valid: public routable IP
+  'https://255.255.255.255' // Valid: public routable IP
 ]
 
 const mockAdvertiser: Advertiser = {
@@ -70,10 +69,13 @@ describe('BSV Overlay Services Engine', () => {
     }
 
     mockLookupService = {
-      outputAdded: jest.fn(),
+      outputAdmittedByTopic: jest.fn(),
       outputSpent: jest.fn(),
       lookup: jest.fn(),
-      outputDeleted: jest.fn(),
+      outputNoLongerRetainedInHistory: jest.fn(),
+      outputEvicted: jest.fn(),
+      admissionMode: 'locking-script',
+      spendNotificationMode: 'none',
       getDocumentation: async () => 'Service Documentation',
       getMetaData: async () => ({ name: 'Mock Service', shortDescription: 'Mock Short Service Description' })
     }
@@ -107,7 +109,7 @@ describe('BSV Overlay Services Engine', () => {
         undefined
       )
 
-      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ 'tm_helloworld': { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
+      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ tm_helloworld: { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
 
       // Call the method that would normally trigger syncAdvertisements
       const result = await engine.syncAdvertisements()
@@ -128,8 +130,8 @@ describe('BSV Overlay Services Engine', () => {
       parseAdvertisement: jest.fn().mockReturnValue({
         protocol: 'SHIP',
         topicOrServiceName: 'mock-topic',
-        timestamp: Date.now(),
-      }),
+        timestamp: Date.now()
+      })
     }
 
     for (const url of validHostingUrls) {
@@ -147,7 +149,7 @@ describe('BSV Overlay Services Engine', () => {
       )
 
       // Call the method that would normally trigger syncAdvertisements
-      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ 'tm_helloworld': { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
+      engine.submit = jest.fn(async (taggedBEEF: TaggedBEEF, onSteakReady: any, mode?: string) => ({ tm_helloworld: { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } } as STEAK))
       const result = await engine.syncAdvertisements()
       expect(engine.submit).toHaveBeenCalled()
 
@@ -240,7 +242,7 @@ describe('BSV Overlay Services Engine', () => {
       outputIndex: 0,
       outputScript: exampleTX.outputs[0].lockingScript.toBinary(),
       topic: 'hello',
-      satoshis: exampleTX.outputs[0].satoshis as number,
+      satoshis: exampleTX.outputs[0].satoshis,
       beef: exampleBeef,
       spent: false,
       outputsConsumed: [],
@@ -305,7 +307,7 @@ describe('BSV Overlay Services Engine', () => {
           outputIndex,
           outputScript: tx.outputs[outputIndex].lockingScript.toBinary(),
           topic: 'hello',
-          satoshis: tx.outputs[outputIndex].satoshis as number,
+          satoshis: tx.outputs[outputIndex].satoshis,
           beef: tx.toBEEF(),
           spent: false,
           outputsConsumed: [],
@@ -554,7 +556,12 @@ describe('BSV Overlay Services Engine', () => {
             beef: exampleBeef,
             topics: ['Hello']
           })
-          expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith(exampleTXID, 0, 'Hello')
+          expect(engine.lookupServices.Hello.outputSpent).toHaveBeenCalledWith({
+            mode: 'none',
+            txid: exampleTXID,
+            outputIndex: 0,
+            topic: 'Hello'
+          })
         })
       })
       describe('When previous UTXOs were not retained by the topic manager', () => {
@@ -579,7 +586,7 @@ describe('BSV Overlay Services Engine', () => {
           })
           // Test that previous UTXOs are deleted
           expect(mockStorageEngine.deleteOutput).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
-          expect(mockLookupService.outputDeleted).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+          expect(mockLookupService.outputNoLongerRetainedInHistory).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
         })
         it('Notifies all lookup services about the output being spent (the notification about the actual deletion will come from deleteUTXODeep)', async () => {
           // Mock findUTXO to return a UTXO
@@ -601,7 +608,7 @@ describe('BSV Overlay Services Engine', () => {
             topics: ['Hello']
           })
           // Was the lookup service notified of the output deletion?
-          expect(mockLookupService.outputDeleted).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
+          expect(mockLookupService.outputNoLongerRetainedInHistory).toHaveBeenCalledWith(exampleTXID, 0, 'hello')
         })
       })
       it('Adds admissible UTXOs to the storage engine', async () => {
@@ -646,12 +653,14 @@ describe('BSV Overlay Services Engine', () => {
           topics: ['Hello']
         })
         // Test the lookup service was notified of the new UTXO
-        expect(mockLookupService.outputAdded).toHaveBeenCalledWith(
-          exampleTXID,
-          0,
-          exampleTX.outputs[0].lockingScript,
-          'Hello'
-        )
+        expect(mockLookupService.outputAdmittedByTopic).toHaveBeenCalledWith({
+          mode: 'locking-script',
+          txid: exampleTXID,
+          satoshis: 26172,
+          outputIndex: 0,
+          lockingScript: exampleTX.outputs[0].lockingScript,
+          topic: 'Hello'
+        })
       })
       describe('For each consumed UTXO', () => {
         it('Finds the UTXO', async () => {

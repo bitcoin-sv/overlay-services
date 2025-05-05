@@ -1,68 +1,131 @@
 import { LookupFormula } from './LookupFormula.js'
-import { LookupQuestion, LookupAnswer, Script } from '@bsv/sdk'
+import { Script, LookupQuestion, LookupAnswer } from '@bsv/sdk'
 
-/**
- * Defines a Lookup Service interface to be implemented for specific use-cases
- */
+/* ---------------------------------------------------------------------------
+ *  Modes a Lookup Service may request from the Overlay Services Engine
+ * -------------------------------------------------------------------------- */
+export type AdmissionMode = 'locking-script' | 'whole-tx'
+export type SpendNotificationMode = 'none' | 'txid' | 'script' | 'whole-tx'
+
+/* ---------------------------------------------------------------------------
+ *  Admission-Notification payloads
+ * -------------------------------------------------------------------------- */
+export type OutputAdmittedByTopic =
+  | { // «locking-script» mode
+    mode: 'locking-script'
+    txid: string // ID of the *admitted* transaction
+    outputIndex: number // index of admitted output
+    topic: string // topic into which it was admitted
+    satoshis: number // value of the output
+    lockingScript: Script // script in this output
+  }
+  | { // «whole-tx» mode
+    mode: 'whole-tx'
+    atomicBEEF: number[] // whole transaction (Atomic BEEF)
+    outputIndex: number
+    topic: string
+  }
+
+/* ---------------------------------------------------------------------------
+ *  Spend-Notification payloads
+ * -------------------------------------------------------------------------- */
+export type OutputSpent =
+  | { // «none»      – “it was spent”
+    mode: 'none'
+    txid: string
+    outputIndex: number
+    topic: string
+  }
+  | { // «txid»      – pointer only
+    mode: 'txid'
+    txid: string
+    outputIndex: number
+    topic: string
+    spendingTxid: string
+  }
+  | { // «script»    – granular input data
+    mode: 'script'
+    txid: string
+    outputIndex: number
+    topic: string
+    spendingTxid: string
+    inputIndex: number
+    unlockingScript: Script
+    sequenceNumber: number
+  }
+  | { // «whole-tx»  – full spending TX
+    mode: 'whole-tx'
+    txid: string
+    outputIndex: number
+    topic: string
+    spendingAtomicBEEF: number[]
+  }
+
+/* ---------------------------------------------------------------------------
+ *  Metadata structure returned by getMetaData()
+ * -------------------------------------------------------------------------- */
+export interface LookupServiceMetaData {
+  name: string
+  shortDescription: string
+  iconURL?: string
+  version?: string
+  informationURL?: string
+}
+
+/* ---------------------------------------------------------------------------
+ *  Lookup Service Interface
+ * -------------------------------------------------------------------------- */
 export interface LookupService {
+  /* -------------------------------------------------------------------------
+   *  REQUIRED static declarations
+   * ----------------------------------------------------------------------- */
+  readonly admissionMode: AdmissionMode
+  readonly spendNotificationMode: SpendNotificationMode
+
+  /* -------------------------------------------------------------------------
+   *  REQUIRED lifecycle hooks
+   * ----------------------------------------------------------------------- */
+  /**
+   * Invoked when a Topic Manager admits a new UTXO.
+   * The payload shape depends on this.admissionMode.
+   */
+  outputAdmittedByTopic: (payload: OutputAdmittedByTopic) => Promise<void> | void
 
   /**
-   * Process the event when a new UTXO is let into a topic
-   * @param txid - The transaction ID (TXID) of the transaction where the new UTXO resides.
-   * @param outputIndex - The index of the transaction output (UTXO) within the transaction.
-   * @param outputScript - The script associated with the transaction output.
-   * @param topic - The topic to which the new UTXO is being added.
-   * @returns A promise that resolves when the processing of the new UTXO is complete.
+   * Invoked when a previously-admitted UTXO is spent.
+   * The payload shape depends on this.spendNotificationMode.
    */
-  outputAdded?: (txid: string, outputIndex: number, outputScript: Script, topic: string) => Promise<void>
+  outputSpent?: (payload: OutputSpent) => Promise<void> | void
 
   /**
-   * Processes the spend event for a UTXO.
-   *
-   * @param txid - The transaction ID of the spent UTXO.
-   * @param outputIndex - The index of the transaction output that was spent.
-   * @param topic - The topic from which the UTXO was spent.
-   *
-   * @returns A promise that resolves when processing is complete.
+   * Called when a Topic Manager decides that **historical retention** of the
+   * specified UTXO is no longer required.
    */
-  outputSpent?: (txid: string, outputIndex: number, topic: string) => Promise<void>
+  outputNoLongerRetainedInHistory?: (
+    txid: string,
+    outputIndex: number,
+    topic: string
+  ) => Promise<void> | void
 
   /**
-   * Processes the deletion event for a UTXO.
-   *
-   * @param txid - The transaction ID of the deleted UTXO.
-   * @param outputIndex - The index of the transaction output that was deleted.
-   * @param topic - The topic from which the UTXO was deleted.
-   *
-   * @returns A promise that resolves when processing is complete.
+   * LEGAL EVICTION:
+   * Permanently remove the referenced UTXO from all indices maintained by the
+   * Lookup Service.  After eviction the service MUST NOT reference the output
+   * in any future lookup answer.
    */
-  outputDeleted?: (txid: string, outputIndex: number, topic: string) => Promise<void>
+  outputEvicted: (
+    txid: string,
+    outputIndex: number
+  ) => Promise<void> | void
 
-  /**
-   * Queries the lookup service for information
-   * @param question — The question to be answered by the lookup service
-   * @returns — The Lookup Answer or Lookup Formula used to answer the question
-   */
+  /* -------------------------------------------------------------------------
+   *  Query API
+   * ----------------------------------------------------------------------- */
   lookup: (question: LookupQuestion) => Promise<LookupAnswer | LookupFormula>
 
-  /**
-   * Returns a Markdown-formatted documentation string for the lookup service.
-   *
-   * @returns A promise that resolves to a documentation string.
-   */
+  /* -------------------------------------------------------------------------
+   *  Documentation helpers
+   * ----------------------------------------------------------------------- */
   getDocumentation: () => Promise<string>
-
-  /**
-   * Returns a metadata object that can be used to identify the lookup service.
-   *
-   * @returns A promise that resolves to a metadata object containing the name, short description,
-   *          and optional properties such as icon URL, version, and information URL.
-   */
-  getMetaData: () => Promise<{
-    name: string
-    shortDescription: string
-    iconURL?: string
-    version?: string
-    informationURL?: string
-  }>
+  getMetaData: () => Promise<LookupServiceMetaData>
 }

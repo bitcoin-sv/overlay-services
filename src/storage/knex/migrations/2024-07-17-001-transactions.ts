@@ -1,6 +1,6 @@
 import type { Knex } from 'knex'
 
-export async function up(knex: Knex): Promise<void> {
+export async function up (knex: Knex): Promise<void> {
   // Create the new transactions table
   await knex.schema.createTable('transactions', table => {
     table.increments()
@@ -22,7 +22,7 @@ export async function up(knex: Knex): Promise<void> {
   })
 }
 
-export async function down(knex: Knex): Promise<void> {
+export async function down (knex: Knex): Promise<void> {
   // Add the beef column back to the outputs table
   await knex.schema.table('outputs', table => {
     table.binary('beef')

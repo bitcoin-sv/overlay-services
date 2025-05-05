@@ -47,7 +47,7 @@ export class Engine {
    * @param {OverlayBroadcastFacilitator} overlayBroadcastFacilitator - Facilitator for propagation to other Overlay Services.
    * @param {typeof console} logger - The place where log entries are written.
    */
-  constructor(
+  constructor (
     public managers: { [key: string]: TopicManager },
     public lookupServices: { [key: string]: LookupService },
     public storage: Storage,
@@ -76,14 +76,14 @@ export class Engine {
       if (managerName === 'tm_ship' && this.shipTrackers !== undefined && this.syncConfiguration[managerName] !== false) {
         // Combine tm_ship trackers with preexisting entries if any
         const combinedSet = new Set([
-          ...(Array.isArray(this.syncConfiguration[managerName]) ? this.syncConfiguration[managerName] as string[] : []),
+          ...(Array.isArray(this.syncConfiguration[managerName]) ? this.syncConfiguration[managerName] : []),
           ...this.shipTrackers
         ])
         this.syncConfiguration[managerName] = Array.from(combinedSet)
       } else if (managerName === 'tm_slap' && this.slapTrackers !== undefined && this.syncConfiguration[managerName] !== false) {
         // Combine tm_slap trackers with preexisting entries if any
         const combinedSet = new Set([
-          ...(Array.isArray(this.syncConfiguration[managerName]) ? this.syncConfiguration[managerName] as string[] : []),
+          ...(Array.isArray(this.syncConfiguration[managerName]) ? this.syncConfiguration[managerName] : []),
           ...this.slapTrackers
         ])
         this.syncConfiguration[managerName] = Array.from(combinedSet)
@@ -97,13 +97,13 @@ export class Engine {
   }
 
   // Helper functions for logging timings
-  private startTime(label: string): void {
+  private startTime (label: string): void {
     if (this.logTime) {
       this.logger.time(`${this.logPrefix} ${label}`)
     }
   }
 
-  private endTime(label: string): void {
+  private endTime (label: string): void {
     if (this.logTime) {
       this.logger.timeEnd(`${this.logPrefix} ${label}`)
     }
@@ -114,12 +114,12 @@ export class Engine {
    * @param {TaggedBEEF} taggedBEEF - The transaction to process
    * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
    * @param {string} mode — Indicates the submission behavior, whether historical or current. Historical transactions are not broadcast or propagated.
-   * 
+   *
    * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
-   * 
+   *
    * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
-  async submit(taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx'): Promise<STEAK> {
+  async submit (taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx'): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
       if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)
@@ -181,7 +181,53 @@ export class Engine {
             await this.storage.markUTXOAsSpent(output.txid, output.outputIndex, topic)
             await Promise.all(Object.values(this.lookupServices).map(async l => {
               try {
-                await l.outputSpent?.(output.txid, output.outputIndex, topic)
+                if (typeof l.outputSpent === 'function') {
+                  if (l.spendNotificationMode === 'txid') {
+                    await l.outputSpent({
+                      mode: 'txid',
+                      spendingTxid: txid,
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  } else if (l.spendNotificationMode === 'script') {
+                    const inputIndex = tx.inputs.findIndex(i => {
+                      let realSource = i.sourceTXID
+                      if (!realSource) {
+                        realSource = i.sourceTransaction?.id('hex')
+                      }
+                      return realSource === output.txid && i.sourceOutputIndex === output.outputIndex
+                    })
+                    if (!inputIndex) {
+                      throw new Error('Could not find input index')
+                    }
+                    await l.outputSpent({
+                      mode: 'script',
+                      spendingTxid: txid,
+                      inputIndex,
+                      sequenceNumber: tx.inputs[inputIndex].sequence ?? 0xffffffff,
+                      unlockingScript: tx.inputs[inputIndex].unlockingScript!,
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  } else if (l.spendNotificationMode === 'whole-tx') {
+                    await l.outputSpent({
+                      mode: 'whole-tx',
+                      spendingAtomicBEEF: tx.toAtomicBEEF(),
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  } else { // none
+                    await l.outputSpent({
+                      mode: 'none',
+                      txid: output.txid,
+                      outputIndex: output.outputIndex,
+                      topic
+                    })
+                  }
+                }
               } catch (error) {
                 this.logger.error('Error in lookup service for outputSpent:', error)
               }
@@ -244,7 +290,7 @@ export class Engine {
 
       const outputsToMarkStale: Array<{
         txid: string
-        previousOutputIndex: number,
+        previousOutputIndex: number
         inputIndex: number
       }> = []
 
@@ -262,12 +308,13 @@ export class Engine {
 
       // For each of the previous UTXOs for this topic, if the UTXO was not included in the list of UTXOs identified for retention, then it will be marked as stale.
       for (const inputIndex of previousCoins) {
-        const previousTXID = tx.inputs[inputIndex].sourceTXID || tx.inputs[inputIndex].sourceTransaction?.id('hex') as string
+        const previousTXID = tx.inputs[inputIndex].sourceTXID ?? tx.inputs[inputIndex].sourceTransaction?.id('hex')
+        if (typeof previousTXID !== 'string') continue
         const previousOutputIndex = tx.inputs[inputIndex].sourceOutputIndex
         if (!admissibleOutputs.coinsToRetain.includes(inputIndex)) {
           outputsToMarkStale.push({
             txid: previousTXID,
-            previousOutputIndex: previousOutputIndex,
+            previousOutputIndex,
             inputIndex
           })
         } else {
@@ -294,12 +341,13 @@ export class Engine {
       // Handle admittance and notification of incoming UTXOs
       const newUTXOs: Array<{ txid: string, outputIndex: number }> = []
       await Promise.all(outputsToAdmit.map(async outputIndex => {
+        if (typeof tx.outputs[outputIndex].satoshis !== 'number') return
         this.startTime(`insertNewOutput_${txid.substring(0, 10)}`)
         await this.storage.insertOutput({
           txid,
           outputIndex,
           outputScript: tx.outputs[outputIndex].lockingScript.toBinary(),
-          satoshis: tx.outputs[outputIndex].satoshis as number,
+          satoshis: tx.outputs[outputIndex].satoshis,
           topic,
           spent: false,
           beef: taggedBEEF.beef,
@@ -310,7 +358,31 @@ export class Engine {
         newUTXOs.push({ txid, outputIndex })
 
         this.startTime(`notifyLookupService${txid.substring(0, 10)}`)
-        await Promise.all(Object.values(this.lookupServices).map(async l => await l.outputAdded?.(txid, outputIndex, tx.outputs[outputIndex].lockingScript, topic)))
+        await Promise.all(Object.values(this.lookupServices).map(async l => {
+          if (l.admissionMode === 'locking-script') {
+            if (
+              typeof tx.outputs[outputIndex].lockingScript !== 'object' ||
+              typeof tx.outputs[outputIndex].satoshis !== 'number'
+            ) {
+              return
+            }
+            await l.outputAdmittedByTopic({
+              mode: 'locking-script',
+              txid,
+              outputIndex,
+              lockingScript: tx.outputs[outputIndex].lockingScript,
+              satoshis: tx.outputs[outputIndex].satoshis,
+              topic
+            })
+          } else {
+            await l.outputAdmittedByTopic({
+              mode: 'whole-tx',
+              atomicBEEF: tx.toAtomicBEEF(),
+              outputIndex,
+              topic
+            })
+          }
+        }))
         this.endTime(`notifyLookupService${txid.substring(0, 10)}`)
       }))
 
@@ -376,7 +448,7 @@ export class Engine {
    * @param LookupQuestion — The question to ask the Overlay Services Engine
    * @returns The answer to the question
    */
-  async lookup(lookupQuestion: LookupQuestion): Promise<LookupAnswer> {
+  async lookup (lookupQuestion: LookupQuestion): Promise<LookupAnswer> {
     // Validate a lookup service for the provider is found
     const lookupService = this.lookupServices[lookupQuestion.service]
     if (lookupService === undefined || lookupService === null) throw new Error(`Lookup service not found for provider: ${lookupQuestion.service} `)
@@ -417,7 +489,7 @@ export class Engine {
   }
 
   /**
-   * Ensures alignment between the current SHIP/SLAP advertisements and the 
+   * Ensures alignment between the current SHIP/SLAP advertisements and the
    * configured Topic Managers and Lookup Services in the engine.
    *
    * This method performs the following actions:
@@ -435,7 +507,7 @@ export class Engine {
    * @throws Will throw an error if there are issues during the advertisement synchronization process.
    * @returns {Promise<void>} A promise that resolves when the synchronization process is complete.
    */
-  async syncAdvertisements(): Promise<void> {
+  async syncAdvertisements (): Promise<void> {
     if (
       this.advertiser === undefined ||
       typeof this.hostingURL !== 'string' ||
@@ -501,7 +573,7 @@ export class Engine {
    *
    * @throws Error if the overlay service engine is not configured for topical synchronization.
    */
-  async startGASPSync(): Promise<void> {
+  async startGASPSync (): Promise<void> {
     if (this.syncConfiguration === undefined) {
       throw new Error('Overlay Service Engine not configured for topical synchronization!')
     }
@@ -595,7 +667,7 @@ export class Engine {
    * @param topic - The topic for which UTXOs are being requested.
    * @returns A promise that resolves to a GASPInitialResponse containing the list of UTXOs and the provided min block height.
    */
-  async provideForeignSyncResponse(initialRequest: GASPInitialRequest, topic: string): Promise<GASPInitialResponse> {
+  async provideForeignSyncResponse (initialRequest: GASPInitialRequest, topic: string): Promise<GASPInitialResponse> {
     const UTXOs = await this.storage.findUTXOsForTopic(topic, initialRequest.since)
 
     return {
@@ -618,7 +690,7 @@ export class Engine {
    * @returns A promise that resolves to a GASPNode containing the raw transaction and other optional data.
    * @throws An error if no output is found for the given transaction ID and output index.
    */
-  async provideForeignGASPNode(graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
+  async provideForeignGASPNode (graphID: string, txid: string, outputIndex: number): Promise<GASPNode> {
     const hydrator = async (output: Output | null): Promise<GASPNode> => {
       if (output?.beef === undefined) {
         throw new Error('No matching output found!')
@@ -696,7 +768,7 @@ export class Engine {
    *
    * @returns {Promise<Output | undefined>} - A promise that resolves to the output history if found, or undefined if not.
    */
-  async getUTXOHistory(
+  async getUTXOHistory (
     output: Output,
     historySelector?: ((beef: number[], outputIndex: number, currentDepth: number) => Promise<boolean>) | number,
     currentDepth = 0
@@ -777,7 +849,7 @@ export class Engine {
    * @param output - The UTXO to be deleted.
    * @returns {Promise<void>} - A promise that resolves when the deletion process is complete.
    */
-  private async deleteUTXODeep(output: Output): Promise<void> {
+  private async deleteUTXODeep (output: Output): Promise<void> {
     try {
       // Delete the current output IFF there are no references to it
       if (output.consumedBy.length === 0) {
@@ -786,7 +858,7 @@ export class Engine {
         // Notify the lookup services of the UTXO being deleted
         for (const l of Object.values(this.lookupServices)) {
           try {
-            await l.outputDeleted?.(
+            await l.outputNoLongerRetainedInHistory?.(
               output.txid,
               output.outputIndex,
               output.topic
@@ -833,7 +905,7 @@ export class Engine {
    * @param txid BE hex string double hash of transaction proven by proof.
    * @param proof for txid
    */
-  private updateInputProofs(tx: Transaction, txid: string, proof: MerklePath): void {
+  private updateInputProofs (tx: Transaction, txid: string, proof: MerklePath): void {
     if (tx.merklePath !== undefined) {
       // Update the merkle path to handle potential reorgs
       tx.merklePath = proof
@@ -844,7 +916,8 @@ export class Engine {
     } else {
       for (const input of tx.inputs) {
         // All inputs must have sourceTransactions
-        const stx = input.sourceTransaction!
+        const stx = input.sourceTransaction
+        if (typeof stx !== 'object') continue
         this.updateInputProofs(stx, txid, proof)
       }
     }
@@ -857,7 +930,7 @@ export class Engine {
    * @param txid - The txid for which proof is a valid merkle path.
    * @param proof - The merklePath proving txid is a mined transaction hash
    */
-  private async updateMerkleProof(output: Output, txid: string, proof: MerklePath): Promise<void> {
+  private async updateMerkleProof (output: Output, txid: string, proof: MerklePath): Promise<void> {
     if (output.beef === undefined) {
       throw new Error('Output must have associated transaction BEEF!')
     }
@@ -891,7 +964,7 @@ export class Engine {
    * @param proof - Merkle proof containing the Merkle path and other relevant data to verify the transaction.
    * @param blockHeight - The block height associated with the incoming merkle proof.
    */
-  async handleNewMerkleProof(txid: string, proof: MerklePath, blockHeight?: number): Promise<void> {
+  async handleNewMerkleProof (txid: string, proof: MerklePath, blockHeight?: number): Promise<void> {
     const outputs = await this.storage.findOutputsForTransaction(txid, true)
 
     if (outputs === undefined || outputs.length === 0) {
@@ -914,21 +987,21 @@ export class Engine {
    * @public
    * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported topic managers and their metadata
    */
-  async listTopicManagers(): Promise<Record<string, {
-    name: string;
-    shortDescription: string;
-    iconURL?: string;
-    version?: string;
-    informationURL?: string;
+  async listTopicManagers (): Promise<Record<string, {
+    name: string
+    shortDescription: string
+    iconURL?: string
+    version?: string
+    informationURL?: string
   }>> {
-    let result: Record<string, {
-      name: string;
-      shortDescription: string;
-      iconURL?: string;
-      version?: string;
-      informationURL?: string;
+    const result: Record<string, {
+      name: string
+      shortDescription: string
+      iconURL?: string
+      version?: string
+      informationURL?: string
     }> = {}
-    for (let t in this.managers) {
+    for (const t in this.managers) {
       try {
         result[t] = await this.managers[t].getMetaData()
       } catch (e) {
@@ -947,21 +1020,21 @@ export class Engine {
    * @public
    * @returns {Promise<Record<string, { name: string; shortDescription: string; iconURL?: string; version?: string; informationURL?: string; }>>} - Supported lookup services and their metadata
    */
-  async listLookupServiceProviders(): Promise<Record<string, {
-    name: string;
-    shortDescription: string;
-    iconURL?: string;
-    version?: string;
-    informationURL?: string;
+  async listLookupServiceProviders (): Promise<Record<string, {
+    name: string
+    shortDescription: string
+    iconURL?: string
+    version?: string
+    informationURL?: string
   }>> {
-    let result: Record<string, {
-      name: string;
-      shortDescription: string;
-      iconURL?: string;
-      version?: string;
-      informationURL?: string;
+    const result: Record<string, {
+      name: string
+      shortDescription: string
+      iconURL?: string
+      version?: string
+      informationURL?: string
     }> = {}
-    for (let ls in this.lookupServices) {
+    for (const ls in this.lookupServices) {
       try {
         result[ls] = await this.lookupServices[ls].getMetaData()
       } catch (e) {
@@ -980,7 +1053,7 @@ export class Engine {
    * @public
    * @returns {Promise<string>} - the documentation for the topic manager
    */
-  async getDocumentationForTopicManager(manager: any): Promise<string> {
+  async getDocumentationForTopicManager (manager: any): Promise<string> {
     const documentation = await this.managers[manager]?.getDocumentation?.()
     return documentation !== undefined ? documentation : 'No documentation found!'
   }
@@ -990,7 +1063,7 @@ export class Engine {
    * @public
    * @returns {Promise<string>} -  the documentation for the lookup service
    */
-  async getDocumentationForLookupServiceProvider(provider: any): Promise<string> {
+  async getDocumentationForLookupServiceProvider (provider: any): Promise<string> {
     const documentation = await this.lookupServices[provider]?.getDocumentation?.()
     return documentation !== undefined ? documentation : 'No documentation found!'
   }
@@ -1005,12 +1078,12 @@ export class Engine {
    * @param url - The URL string to validate
    * @returns {boolean} - Returns `false` if the URL violates any of the conditions `true` otherwise
    */
-  private isValidUrl(url: string): boolean {
+  private isValidUrl (url: string): boolean {
     try {
       const parsedUrl = new URL(url)
 
       // Disallow http:
-      if (parsedUrl.protocol === "http:") {
+      if (parsedUrl.protocol === 'http:') {
         return false
       }
 
@@ -1026,9 +1099,9 @@ export class Engine {
       const nonRoutableIpv4Patterns = [
         /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // Loopback IPs
         /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // 10.x.x.x private IPs
-        /^192\.168\.\d{1,3}\.\d{1,3}$/,    // 192.168.x.x private IPs
+        /^192\.168\.\d{1,3}\.\d{1,3}$/, // 192.168.x.x private IPs
         /^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$/, // 172.16.x.x to 172.31.x.x private IPs
-        /^0\.0\.0\.0$/                      // Non-routable address
+        /^0\.0\.0\.0$/ // Non-routable address
       ]
 
       // Check for IPv4 matches
@@ -1037,7 +1110,7 @@ export class Engine {
       }
 
       // Check for non-routable IPv6 addresses explicitly
-      if (ipAddress === "[::1]") {
+      if (ipAddress === '[::1]') {
         return false
       }
 

@@ -78,7 +78,6 @@ export interface Storage {
    */
   updateTransactionBEEF: (txid: string, beef: number[]) => Promise<void>
 
-
   /**
    * Updates the block height on an output
    * @param txid — TXID of the output to update

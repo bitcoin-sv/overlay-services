@@ -22,14 +22,14 @@ export interface GraphNode {
 export class OverlayGASPStorage implements GASPStorage {
   readonly temporaryGraphNodeRefs: Record<string, GraphNode> = {}
 
-  constructor(public topic: string, public engine: Engine, public maxNodesInGraph?: number) { }
+  constructor (public topic: string, public engine: Engine, public maxNodesInGraph?: number) { }
 
   /**
    *
    * @param since
    * @returns
    */
-  async findKnownUTXOs(since: number): Promise<Array<{ txid: string, outputIndex: number }>> {
+  async findKnownUTXOs (since: number): Promise<Array<{ txid: string, outputIndex: number }>> {
     const UTXOs = await this.engine.storage.findUTXOsForTopic(this.topic, since)
     return UTXOs.map(output => ({
       txid: output.txid,
@@ -39,13 +39,13 @@ export class OverlayGASPStorage implements GASPStorage {
 
   /**
    * For a given txid and output index, returns the associated transaction, a merkle proof if the transaction is in a block, and metadata if if requested. If no metadata is requested, metadata hashes on inputs are not returned.
-   * @param graphID 
-   * @param txid 
-   * @param outputIndex 
-   * @param metadata 
-   * @returns 
+   * @param graphID
+   * @param txid
+   * @param outputIndex
+   * @param metadata
+   * @returns
    */
-  async hydrateGASPNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
+  async hydrateGASPNode (graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
     const output = await this.engine.storage.findOutput(txid, outputIndex, undefined, undefined, true)
 
     if (output?.beef === undefined) {
@@ -72,7 +72,7 @@ export class OverlayGASPStorage implements GASPStorage {
   * @param tx The node for which needed inputs should be found.
   * @returns A promise for a mapping of requested input transactions and whether metadata should be provided for each.
   */
-  async findNeededInputs(tx: GASPNode): Promise<GASPNodeResponse | undefined> {
+  async findNeededInputs (tx: GASPNode): Promise<GASPNodeResponse | undefined> {
     // If there is no Merkle proof, we always need the inputs
     const response: GASPNodeResponse = {
       requestedInputs: {}
@@ -120,7 +120,7 @@ export class OverlayGASPStorage implements GASPStorage {
    * Ensures that no inputs are requested from foreign nodes before sending any GASP response
    * Also terminates graphs if the response would be empty.
    */
-  private async stripAlreadyKnownInputs(response: GASPNodeResponse | undefined): Promise<GASPNodeResponse | undefined> {
+  private async stripAlreadyKnownInputs (response: GASPNodeResponse | undefined): Promise<GASPNodeResponse | undefined> {
     if (typeof response === 'undefined') {
       return response
     }
@@ -144,7 +144,7 @@ export class OverlayGASPStorage implements GASPStorage {
   * @param spentBy Unless this is the same node identified by the graph ID, denotes the TXID and input index for the node which spent this one, in 36-byte format.
   * @throws If the node cannot be appended to the graph, either because the graph ID is for a graph the recipient does not want or because the graph has grown to be too large before being finalized.
   */
-  async appendToGraph(tx: GASPNode, spentBy?: string | undefined): Promise<void> {
+  async appendToGraph (tx: GASPNode, spentBy?: string | undefined): Promise<void> {
     if (this.maxNodesInGraph !== undefined && Object.keys(this.temporaryGraphNodeRefs).length >= this.maxNodesInGraph) {
       throw new Error('The max number of nodes in transaction graph has been reached!')
     }
@@ -194,7 +194,7 @@ export class OverlayGASPStorage implements GASPStorage {
     * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
     * @throws If the graph is not well-anchored, according to the rules of Bitcoin or the rules of the Overlay Topic Manager.
     */
-  async validateGraphAnchor(graphID: string): Promise<void> {
+  async validateGraphAnchor (graphID: string): Promise<void> {
     const rootNode = this.temporaryGraphNodeRefs[graphID]
     if (rootNode === undefined) {
       throw new Error(`Graph node with ID ${graphID} not found`)
@@ -246,7 +246,7 @@ export class OverlayGASPStorage implements GASPStorage {
    * Deletes all data associated with a temporary graph that has failed to sync, if the graph exists.
    * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the tip of this graph.
    */
-  async discardGraph(graphID: string): Promise<void> {
+  async discardGraph (graphID: string): Promise<void> {
     for (const [nodeId, graphRef] of Object.entries(this.temporaryGraphNodeRefs)) {
       if (graphRef.graphID === graphID) {
         // Delete child node
@@ -260,7 +260,7 @@ export class OverlayGASPStorage implements GASPStorage {
    * Finalizes a graph, solidifying the new UTXO and its ancestors so that it will appear in the list of known UTXOs.
    * @param graphID The TXID and output index (in 36-byte format) for the UTXO at the root of this graph.
    */
-  async finalizeGraph(graphID: string): Promise<void> {
+  async finalizeGraph (graphID: string): Promise<void> {
     const beefs = this.computeOrderedBEEFsForGraph(graphID)
 
     // Submit all historical BEEFs in order, finalizing the graph for the current UTXO
@@ -277,11 +277,11 @@ export class OverlayGASPStorage implements GASPStorage {
    * @param {string} graphID — The ID of the graph for which BEEFs are required
    * @returns Ordered BEEFs for the graph
    */
-  private computeOrderedBEEFsForGraph(graphID: string): number[][] {
+  private computeOrderedBEEFsForGraph (graphID: string): number[][] {
     const beefs: number[][] = []
     const hydrator = (node: GraphNode): void => {
       const currentBEEF = this.getBEEFForNode(node)
-      if (beefs.indexOf(currentBEEF) === -1) {
+      if (!beefs.includes(currentBEEF)) {
         beefs.unshift(currentBEEF)
       }
 
@@ -305,7 +305,7 @@ export class OverlayGASPStorage implements GASPStorage {
    * @param node Graph node for which BEEF is needed.
    * @returns BEEF array, including all proofs on inputs.
    */
-  private getBEEFForNode(node: GraphNode): number[] {
+  private getBEEFForNode (node: GraphNode): number[] {
     // Given a node, hydrate its merkle proof or all inputs, returning a reference to the hydrated node's Transaction object
     const hydrator = (node: GraphNode): Transaction => {
       const tx = Transaction.fromHex(node.rawTx)

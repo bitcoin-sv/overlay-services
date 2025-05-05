@@ -1,14 +1,14 @@
-import { GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote } from "@bsv/gasp"
+import { GASPInitialReply, GASPInitialRequest, GASPInitialResponse, GASPNode, GASPNodeResponse, GASPRemote } from '@bsv/gasp'
 
 export class OverlayGASPRemote implements GASPRemote {
-  constructor(public endpointURL: string, public topic: string) { }
+  constructor (public endpointURL: string, public topic: string) { }
 
   /**
    * Given an outgoing initial request, sends the request to the foreign instance and obtains their initial response.
    * @param request
    * @returns
    */
-  async getInitialResponse(request: GASPInitialRequest): Promise<GASPInitialResponse> {
+  async getInitialResponse (request: GASPInitialRequest): Promise<GASPInitialResponse> {
     // Send out an HTTP request to the URL (current host for topic)
     // Include the topic in the request
     // Parse out response and return correct format
@@ -50,7 +50,7 @@ export class OverlayGASPRemote implements GASPRemote {
    * @param metadata
    * @returns
    */
-  async requestNode(graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
+  async requestNode (graphID: string, txid: string, outputIndex: number, metadata: boolean): Promise<GASPNode> {
     // Send an HTTP request with the provided info and get back a gaspNode
     const url = `${this.endpointURL}/requestForeignGASPNode`
     const body = {
@@ -95,13 +95,13 @@ export class OverlayGASPRemote implements GASPRemote {
   // ---- Now optional methods ----
 
   // When are only syncing to them
-  async getInitialReply(response: GASPInitialResponse): Promise<GASPInitialReply> {
+  async getInitialReply (response: GASPInitialResponse): Promise<GASPInitialReply> {
     throw new Error('Function not supported!')
   }
 
   // Only used when supporting bidirectional sync.
   // Overlay services does not support this.
-  async submitNode(node: GASPNode): Promise<void | GASPNodeResponse> {
+  async submitNode (node: GASPNode): Promise<void | GASPNodeResponse> {
     throw new Error('Node submission not supported!')
   }
 }

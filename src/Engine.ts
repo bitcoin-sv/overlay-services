@@ -114,12 +114,13 @@ export class Engine {
    * @param {TaggedBEEF} taggedBEEF - The transaction to process
    * @param {function(STEAK): void} [onSTEAKReady] - Optional callback function invoked when the STEAK is ready.
    * @param {string} mode — Indicates the submission behavior, whether historical or current. Historical transactions are not broadcast or propagated.
+   * @param {number[]} offChainValues — Values necessary to evaluate topical admittance that are not stored on-chain.
    *
    * The optional callback function should be used to get STEAK when ready, and avoid waiting for broadcast and transaction propagation to complete.
    *
    * @returns {Promise<STEAK>} The submitted transaction execution acknowledgement
    */
-  async submit (taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx'): Promise<STEAK> {
+  async submit (taggedBEEF: TaggedBEEF, onSteakReady?: (steak: STEAK) => void, mode: 'historical-tx' | 'current-tx' = 'current-tx', offChainValues?: number[]): Promise<STEAK> {
     for (const t of taggedBEEF.topics) {
       if (this.managers[t] === undefined || this.managers[t] === null) {
         throw new Error(`This server does not support this topic: ${t}`)
@@ -209,7 +210,8 @@ export class Engine {
                       unlockingScript: tx.inputs[inputIndex].unlockingScript!,
                       txid: output.txid,
                       outputIndex: output.outputIndex,
-                      topic
+                      topic,
+                      offChainValues
                     })
                   } else if (l.spendNotificationMode === 'whole-tx') {
                     await l.outputSpent({
@@ -217,7 +219,8 @@ export class Engine {
                       spendingAtomicBEEF: tx.toAtomicBEEF(),
                       txid: output.txid,
                       outputIndex: output.outputIndex,
-                      topic
+                      topic,
+                      offChainValues
                     })
                   } else { // none
                     await l.outputSpent({
@@ -243,7 +246,7 @@ export class Engine {
       const admissibleOutputsPromise = (async () => {
         try {
           this.startTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
-          admissibleOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins)
+          admissibleOutputs = await this.managers[topic].identifyAdmissibleOutputs(taggedBEEF.beef, previousCoins, offChainValues)
           this.endTime(`identifyAdmissibleOutputs_${txid.substring(0, 10)}`)
         } catch (_) {
           steak[topic] = { outputsToAdmit: [], coinsToRetain: [] }
@@ -372,14 +375,16 @@ export class Engine {
               outputIndex,
               lockingScript: tx.outputs[outputIndex].lockingScript,
               satoshis: tx.outputs[outputIndex].satoshis,
-              topic
+              topic,
+              offChainValues
             })
           } else {
             await l.outputAdmittedByTopic({
               mode: 'whole-tx',
               atomicBEEF: tx.toAtomicBEEF(),
               outputIndex,
-              topic
+              topic,
+              offChainValues
             })
           }
         }))
@@ -453,16 +458,9 @@ export class Engine {
     const lookupService = this.lookupServices[lookupQuestion.service]
     if (lookupService === undefined || lookupService === null) throw new Error(`Lookup service not found for provider: ${lookupQuestion.service} `)
 
-    let lookupResult = await lookupService.lookup(lookupQuestion)
-    // Handle custom lookup service answers
-    if ((lookupResult as LookupAnswer).type === 'freeform' || (lookupResult as LookupAnswer).type === 'output-list') {
-      return lookupResult as LookupAnswer
-    }
-    lookupResult = lookupResult as LookupFormula
-
-    const hydratedOutputs: Array<{ beef: number[], outputIndex: number }> = []
-
-    for (const { txid, outputIndex, history } of lookupResult) {
+    const lookupResult = await lookupService.lookup(lookupQuestion)
+    const hydratedOutputs: Array<{ beef: number[], outputIndex: number, context?: number[] }> = []
+    for (const { txid, outputIndex, history, context } of lookupResult) {
       // Make sure this is an unspent output (UTXO)
       const UTXO = await this.storage.findOutput(
         txid,
@@ -478,7 +476,8 @@ export class Engine {
       if (output?.beef !== undefined) {
         hydratedOutputs.push({
           beef: output.beef,
-          outputIndex: output.outputIndex
+          outputIndex: output.outputIndex,
+          context
         })
       }
     }

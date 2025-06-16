@@ -18,12 +18,14 @@ export type OutputAdmittedByTopic =
     topic: string // topic into which it was admitted
     satoshis: number // value of the output
     lockingScript: Script // script in this output
+    offChainValues?: number[] // off-chain values associated with the output
   }
   | { // «whole-tx» mode
     mode: 'whole-tx'
     atomicBEEF: number[] // whole transaction (Atomic BEEF)
     outputIndex: number
     topic: string
+    offChainValues?: number[]
   }
 
 /* ---------------------------------------------------------------------------
@@ -52,6 +54,7 @@ export type OutputSpent =
     inputIndex: number
     unlockingScript: Script
     sequenceNumber: number
+    offChainValues?: number[]
   }
   | { // «whole-tx»  – full spending TX
     mode: 'whole-tx'
@@ -59,6 +62,7 @@ export type OutputSpent =
     outputIndex: number
     topic: string
     spendingAtomicBEEF: number[]
+    offChainValues?: number[]
   }
 
 /* ---------------------------------------------------------------------------
@@ -121,7 +125,7 @@ export interface LookupService {
   /* -------------------------------------------------------------------------
    *  Query API
    * ----------------------------------------------------------------------- */
-  lookup: (question: LookupQuestion) => Promise<LookupAnswer | LookupFormula>
+  lookup: (question: LookupQuestion) => Promise<LookupFormula>
 
   /* -------------------------------------------------------------------------
    *  Documentation helpers

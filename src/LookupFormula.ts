@@ -23,4 +23,9 @@ export type LookupFormula = Array<{
    * If not provided, no historical information will be included with the Lookup Answer, except that which may incidentally be required to fully anchor the Lookup Answer to the blockchain.
    */
   history?: ((beef: number[], outputIndex: number, currentDepth: number) => Promise<boolean>) | number
+
+  /**
+   * Context for the UTXO, derived from the off-chain values.
+   */
+  context?: number[]
 }>

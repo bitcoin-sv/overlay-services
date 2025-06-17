@@ -534,7 +534,7 @@ describe('BSV Overlay Services Engine', () => {
           beef: exampleBeef,
           topics: ['Hello']
         })
-        expect(engine.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith(exampleBeef, [0])
+        expect(engine.managers.Hello.identifyAdmissibleOutputs).toHaveBeenCalledWith(exampleBeef, [0], undefined)
       })
       describe('When previous UTXOs were retained by the topic manager', () => {
         it('Notifies all lookup services about the output being spent (not deleted, see the comment about this in deleteUTXODeep)', async () => {

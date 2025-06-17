@@ -1,5 +1,5 @@
 import { GASPNode, GASPNodeResponse, GASPStorage } from '@bsv/gasp'
-import { MerklePath, Transaction } from '@bsv/sdk'
+import { MerklePath, Transaction, Utils } from '@bsv/sdk'
 import { Engine } from '../Engine.js'
 
 /**
@@ -90,7 +90,7 @@ export class OverlayGASPStorage implements GASPStorage {
 
     // Attempt to check if the current transaction is admissible
     parsedTx.merklePath = MerklePath.fromHex(tx.proof)
-    const admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), [])
+    const admittanceResult = await this.engine.managers[this.topic].identifyAdmissibleOutputs(parsedTx.toBEEF(), [], typeof tx.txMetadata === 'string' ? Utils.toArray(tx.txMetadata) : undefined)
 
     if (admittanceResult.outputsToAdmit.includes(tx.outputIndex)) {
       // The transaction is admissible, no further inputs are needed
